@@ -1,0 +1,111 @@
+// AEM Residence Operations - Prisma schema
+// SQLite for local dev (no Docker). Production can use PostgreSQL by changing provider + url.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String   @id @default(uuid())
+  email        String   @unique
+  passwordHash String
+  role         String   @default("ADMIN") // extensible: ADMIN, MANAGER, VIEWER
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model Supplier {
+  id            String   @id @default(uuid())
+  companyName   String
+  contactPerson String?
+  phone         String?
+  location      String?
+  status        String   @default("ACTIVE") // ACTIVE | INACTIVE
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  orders        Order[]
+}
+
+model Product {
+  id               String   @id @default(uuid())
+  name             String
+  category         String
+  measurementUnit  String   // kg, ton, litre, adet, m, m², m³, torba, paket, kutu, rulo
+  price            Float
+  status           String   @default("ACTIVE") // ACTIVE | INACTIVE
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  inventoryMovements InventoryMovement[]
+}
+
+model InventoryMovement {
+  id                String    @id @default(uuid())
+  productId         String
+  type              String    // ORDER_CREATE | ORDER_CANCEL | RECONCILE_ADJUST | MANUAL_ADJUST | STOCK_IN
+  deltaQty          Int       // negative = usage, positive = restock
+  reason            String?
+  orderId           String?
+  reconciliationId  String?
+  createdAt         DateTime  @default(now())
+  product           Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+}
+
+model Order {
+  id             String    @id @default(uuid())
+  orderNumber    String    @unique // ORD-{shortId}
+  orderDate      DateTime
+  supplierId     String
+  supplierName   String    // snapshot at order time
+  totalAmount    Float
+  status         String    @default("PENDING") // PENDING | DELIVERED | RECONCILED
+  notes          String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  supplier       Supplier  @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  orderItems     OrderItem[]
+  reconciliation Reconciliation?
+}
+
+model OrderItem {
+  id                  String    @id @default(uuid())
+  orderId             String
+  productId           String?   // nullable if product deleted
+  name                String    // snapshot
+  unit                String    // snapshot
+  price               Float     // snapshot
+  quantity            Int
+  order               Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  reconciliationItems ReconciliationItem[]
+}
+
+model Reconciliation {
+  id                String    @id @default(uuid())
+  orderId           String    @unique
+  reconciliationDate DateTime @default(now())
+  notes             String?
+  totalLossValue    Float
+  createdAt         DateTime  @default(now())
+  order             Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  items             ReconciliationItem[]
+}
+
+model ReconciliationItem {
+  id               String   @id @default(uuid())
+  reconciliationId String
+  orderItemId      String
+  orderItem        OrderItem @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
+  name             String   // snapshot
+  unit             String   // snapshot
+  price            Float    // snapshot
+  orderedQty       Int
+  receivedQty      Int
+  missingQty       Int      // max(orderedQty - receivedQty, 0)
+  lossValue        Float
+  status           String   // COMPLETE | MISSING | EXCESS
+  reconciliation   Reconciliation @relation(fields: [reconciliationId], references: [id], onDelete: Cascade)
+}

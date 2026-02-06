@@ -1,0 +1,15 @@
+node_modules
+dist
+.env
+.env.local
+.env.*.local
+*.log
+.DS_Store
+coverage
+.turbo
+*.tsbuildinfo
+
+# SQLite dev DB and session store
+apps/api/prisma/*.db
+apps/api/prisma/prisma/*.db
+apps/api/prisma/sessions

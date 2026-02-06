@@ -1,0 +1,176 @@
+import { Router, Request, Response } from 'express';
+import { customAlphabet } from 'nanoid';
+import { prisma } from '../lib/prisma';
+import { requireAuth, requireAdmin } from '../middleware/auth';
+import { validateBody } from '../middleware/validate';
+import { createOrderSchema } from '@aem/shared';
+import { logError } from '../lib/logger';
+import { generateOrderPdf } from '../lib/pdf';
+const router = Router();
+router.use(requireAuth);
+
+const shortId = customAlphabet('0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ', 10);
+
+/**
+ * Normalize/merge order items: same product (by productId or name+unit+price) merged into one line.
+ */
+function normalizeItems(
+  items: Array<{ productId: string | null; name: string; unit: string; price: number; quantity: number }>
+): Array<{ productId: string | null; name: string; unit: string; price: number; quantity: number }> {
+  const map = new Map<string, { productId: string | null; name: string; unit: string; price: number; quantity: number }>();
+  for (const it of items) {
+    const key = it.productId ?? `${it.name}|${it.unit}|${it.price}`;
+    const existing = map.get(key);
+    if (existing) {
+      existing.quantity += it.quantity;
+    } else {
+      map.set(key, { ...it });
+    }
+  }
+  return Array.from(map.values());
+}
+
+/** GET /orders?status=pending|delivered|reconciled */
+router.get('/', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const status = req.query.status as string | undefined;
+    const where = status && ['PENDING', 'DELIVERED', 'RECONCILED'].includes(status) ? { status } : {};
+    const orders = await prisma.order.findMany({
+      where,
+      include: { orderItems: true },
+      orderBy: { orderDate: 'desc' },
+    });
+    res.json({ success: true, data: orders });
+  } catch (err) {
+    logError('GET /orders', err);
+    res.status(500).json({ success: false, error: 'Failed to fetch orders' });
+  }
+});
+
+/** POST /orders - create order with items (merged), snapshots stored. No stock deduction (anti-theft: ordered vs received only). */
+router.post('/', requireAdmin, validateBody(createOrderSchema), async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { supplierId, orderDate, items: rawItems, notes } = req.body;
+    const supplier = await prisma.supplier.findFirst({
+      where: { id: supplierId, status: 'ACTIVE' },
+    });
+    if (!supplier) {
+      res.status(400).json({ success: false, error: 'Supplier not found or inactive' });
+      return;
+    }
+    const items = normalizeItems(rawItems);
+    const orderDateObj = new Date(orderDate);
+
+    const orderItemsData: Array<{ productId: string | null; name: string; unit: string; price: number; quantity: number }> = [];
+    let totalAmount = 0;
+    for (const it of items) {
+      if (it.productId) {
+        const product = await prisma.product.findUnique({ where: { id: it.productId } });
+        if (!product) {
+          res.status(400).json({ success: false, error: `Product not found: ${it.name}` });
+          return;
+        }
+        if (product.status !== 'ACTIVE') {
+          res.status(400).json({ success: false, error: `Product is inactive: ${product.name}` });
+          return;
+        }
+      }
+      const lineTotal = it.price * it.quantity;
+      totalAmount += lineTotal;
+      orderItemsData.push({
+        productId: it.productId,
+        name: it.name,
+        unit: it.unit,
+        price: it.price,
+        quantity: it.quantity,
+      });
+    }
+
+    const orderNumber = `ORD-${shortId()}`;
+
+    const order = await prisma.order.create({
+      data: {
+        orderNumber,
+        orderDate: orderDateObj,
+        supplierId: supplier.id,
+        supplierName: supplier.companyName,
+        totalAmount,
+        status: 'PENDING',
+        notes: notes ?? null,
+        orderItems: { create: orderItemsData },
+      },
+      include: { orderItems: true },
+    });
+
+    res.status(201).json({ success: true, data: order });
+  } catch (err) {
+    logError('POST /orders', err);
+    res.status(500).json({ success: false, error: 'Failed to create order' });
+  }
+});
+
+/** GET /orders/:id/pdf - returns application/pdf (must be before GET /:id so /id/pdf matches) */
+router.get('/:id/pdf', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const order = await prisma.order.findUnique({
+      where: { id: req.params.id },
+      include: { orderItems: true },
+    });
+    if (!order) {
+      res.status(404).json({ success: false, error: 'Order not found' });
+      return;
+    }
+    const pdfBuffer = await generateOrderPdf(order);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="order-${order.orderNumber}.pdf"`);
+    res.send(pdfBuffer);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    logError('GET /orders/:id/pdf', err);
+    if (err instanceof Error && err.stack) console.error(err.stack);
+    res.status(500).json({ success: false, error: `Failed to generate PDF: ${message}` });
+  }
+});
+
+/** PUT /orders/:id/status */
+router.put('/:id/status', requireAdmin, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { status } = req.body;
+    if (!['PENDING', 'DELIVERED', 'RECONCILED'].includes(status)) {
+      res.status(400).json({ success: false, error: 'Invalid status' });
+      return;
+    }
+    const order = await prisma.order.update({
+      where: { id: req.params.id },
+      data: { status },
+    });
+    res.json({ success: true, data: order });
+  } catch (err: unknown) {
+    if (err && typeof err === 'object' && 'code' in err && err.code === 'P2025') {
+      res.status(404).json({ success: false, error: 'Order not found' });
+      return;
+    }
+    logError('PUT /orders/:id/status', err);
+    res.status(500).json({ success: false, error: 'Failed to update order status' });
+  }
+});
+
+/** GET /orders/:id */
+router.get('/:id', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const order = await prisma.order.findUnique({
+      where: { id: req.params.id },
+      include: { orderItems: true, reconciliation: { include: { items: true } } },
+    });
+    if (!order) {
+      res.status(404).json({ success: false, error: 'Order not found' });
+      return;
+    }
+    res.json({ success: true, data: order });
+  } catch (err) {
+    logError('GET /orders/:id', err);
+    res.status(500).json({ success: false, error: 'Failed to fetch order' });
+  }
+});
+
+export default router;

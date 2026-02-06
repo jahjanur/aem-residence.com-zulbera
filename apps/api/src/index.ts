@@ -1,0 +1,108 @@
+/**
+ * AEM Residence Operations API
+ * Node.js + Express + TypeScript, session auth, SQLite (local) / optional Postgres (production)
+ */
+import path from 'path';
+import 'express-session';
+import express from 'express';
+import cors from 'cors';
+import helmet from 'helmet';
+import session from 'express-session';
+import { config } from './config';
+import { logRequest, logError } from './lib/logger';
+
+import authRoutes from './routes/auth';
+import suppliersRoutes from './routes/suppliers';
+import productsRoutes from './routes/products';
+import ordersRoutes from './routes/orders';
+import reconciliationsRoutes from './routes/reconciliations';
+import controlRoutes from './routes/control';
+import analyticsRoutes from './routes/analytics';
+import inventoryRoutes from './routes/inventory';
+import debugRoutes from './routes/debug';
+import { sanitizeBody } from './middleware/sanitize';
+
+// Session store: file-based (no native deps; persists across restarts)
+const FileStore = require('session-file-store')(session);
+
+const app = express();
+
+// Security
+app.use(helmet({
+  contentSecurityPolicy: false, // allow inline scripts if needed for SPA
+  crossOriginResourcePolicy: { policy: 'cross-origin' },
+}));
+app.use(cors({
+  origin: config.corsOrigin,
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+}));
+
+// Session: httpOnly cookies, store in files (prisma/sessions)
+app.use(
+  session({
+    store: new FileStore({
+      path: path.join(__dirname, '..', 'prisma', 'sessions'),
+    }),
+    secret: config.sessionSecret,
+    resave: false,
+    saveUninitialized: false,
+    name: 'connect.sid',
+    cookie: {
+      httpOnly: true,
+      secure: config.isProduction,
+      maxAge: 7 * 24 * 60 * 60 * 1000,
+      sameSite: config.isProduction ? 'lax' : 'lax',
+    },
+  })
+);
+
+app.use(express.json({ limit: '1mb' }));
+app.use(sanitizeBody);
+
+// Request logging
+app.use((req, res, next) => {
+  const start = Date.now();
+  res.on('finish', () => {
+    logRequest(req.method, req.path, res.statusCode, Date.now() - start);
+  });
+  next();
+});
+
+// Routes (rate limit applied only to login inside auth router)
+app.use('/auth', authRoutes);
+app.use('/suppliers', suppliersRoutes);
+app.use('/products', productsRoutes);
+app.use('/orders', ordersRoutes);
+app.use('/reconciliations', reconciliationsRoutes);
+app.use('/control', controlRoutes);
+app.use('/analytics', analyticsRoutes);
+app.use('/inventory', inventoryRoutes);
+
+// Health
+app.get('/health', (_req, res) => res.json({ ok: true }));
+
+// Dev-only debug (disabled in production)
+if (!config.isProduction) {
+  app.use('/debug', debugRoutes);
+}
+
+// 404
+app.use((_req, res) => res.status(404).json({ success: false, error: 'Not found' }));
+
+// Error handler
+app.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+  logError('Unhandled error', err);
+  res.status(500).json({ success: false, error: 'Internal server error' });
+});
+
+const server = app.listen(config.port, () => {
+  console.log(`API listening on port ${config.port} (${config.nodeEnv})`);
+});
+server.on('error', (err: NodeJS.ErrnoException) => {
+  if (err.code === 'EADDRINUSE') {
+    console.error(`\nPort ${config.port} is already in use. Kill the process with:\n  npm run dev:kill\nor:\n  lsof -ti:${config.port} | xargs kill -9\n`);
+  }
+  throw err;
+});

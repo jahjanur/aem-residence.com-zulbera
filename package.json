@@ -1,0 +1,26 @@
+{
+  "name": "aem-residence-ops",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "concurrently \"npm run dev:api\" \"npm run dev:web\"",
+    "dev:api": "cd apps/api && DOTENV_CONFIG_PATH=.env node -r dotenv/config ../../node_modules/.bin/tsx watch src/index.ts",
+    "dev:web": "npm run dev -w @aem/web",
+    "dev:kill": "lsof -ti:4000 | xargs kill -9 2>/dev/null || echo 'No process on port 4000'",
+    "build": "npm run build -w @aem/shared && npm run build -w @aem/api && npm run build -w @aem/web",
+    "start": "npm run start -w @aem/api",
+    "db:migrate": "npm run db:migrate -w @aem/api",
+    "db:seed": "npm run db:seed -w @aem/api",
+    "db:generate": "npm run db:generate -w @aem/api",
+    "test": "npm run test -w @aem/api"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
