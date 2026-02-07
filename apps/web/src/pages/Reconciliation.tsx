@@ -50,9 +50,9 @@ export default function Reconciliation() {
 
   const { data: ordersData } = useQuery({
     queryKey: ['orders'],
-    queryFn: () => api.get<Order[]>('/orders'),
+    queryFn: () => api.get<{ list: Order[]; summary?: { totalSpendMkd: number; totalCount: number } }>('/orders'),
   });
-  const orders = ordersData?.data ?? [];
+  const orders = (ordersData?.data && 'list' in ordersData.data ? ordersData.data.list : []) as Order[];
   const pendingOrDelivered = orders.filter((o) => o.status === 'PENDING' || o.status === 'DELIVERED');
 
   const reconcile = useMutation({

@@ -12,7 +12,12 @@ export function validateBody<T>(schema: ZodSchema<T>) {
     } catch (err) {
       if (err instanceof ZodError) {
         const first = err.errors[0];
-        const message = first ? `${first.path.join('.')}: ${first.message}` : 'Validation failed';
+        const path = first?.path.join('.') ?? '';
+        const message = first ? `${path}: ${first.message}` : 'Validation failed';
+        if (path === 'phone') {
+          res.status(422).json({ success: false, error: message, code: 'INVALID_PHONE' });
+          return;
+        }
         res.status(400).json({ success: false, error: message });
         return;
       }

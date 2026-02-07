@@ -12,6 +12,8 @@ interface Overview {
   pendingOrders: number;
   totalLosses: number;
   lowStockCount?: number;
+  totalOrdersAmountMkd?: number;
+  totalOrdersCount?: number;
 }
 
 interface ReconItem {
@@ -61,6 +63,8 @@ export default function Dashboard() {
     pendingOrders: 0,
     totalLosses: 0,
     lowStockCount: 0,
+    totalOrdersAmountMkd: 0,
+    totalOrdersCount: 0,
   };
   const recent = recentData?.data ?? [];
   const selected = recent.find((r) => r.id === detailId);
@@ -69,19 +73,30 @@ export default function Dashboard() {
     <div className="page-container space-y-4 md:space-y-6">
       <h1 className="text-xl md:text-2xl font-semibold text-app-primary">{t('dashboard.title')}</h1>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
-        <Link to="/app/suppliers" className="block">
-          <StatCard label={t('dashboard.suppliers')} value={s.totalSuppliers} accent />
-        </Link>
-        <Link to="/app/products" className="block">
-          <StatCard label={t('dashboard.products')} value={s.totalProducts} accent />
-        </Link>
-        <Link to="/app/reconciliation" className="block">
-          <StatCard label={t('dashboard.pendingOrders')} value={s.pendingOrders} />
-        </Link>
-        <Link to="/app/control-panel" className="block">
-          <StatCard label={t('dashboard.totalLosses')} value={formatMKD(Number(s.totalLosses))} />
-        </Link>
+      <div className="space-y-3 md:space-y-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-4">
+          <Link to="/app/suppliers" className="block">
+            <StatCard label={t('dashboard.suppliers')} value={s.totalSuppliers} accent />
+          </Link>
+          <Link to="/app/products" className="block">
+            <StatCard label={t('dashboard.products')} value={s.totalProducts} accent />
+          </Link>
+          <Link to="/app/reconciliation" className="block">
+            <StatCard label={t('dashboard.pendingOrders')} value={s.pendingOrders} />
+          </Link>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 md:gap-4">
+          <Link to="/app/orders" className="block w-full">
+            <StatCard
+              label={t('dashboard.totalOrdersMkd')}
+              value={formatMKD(Number(s.totalOrdersAmountMkd ?? 0))}
+              accent
+            />
+          </Link>
+          <Link to="/app/control-panel" className="block w-full">
+            <StatCard label={t('dashboard.totalLosses')} value={formatMKD(Number(s.totalLosses))} />
+          </Link>
+        </div>
       </div>
 
       {(s.lowStockCount ?? 0) > 0 && (

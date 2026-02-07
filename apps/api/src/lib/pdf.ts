@@ -9,6 +9,14 @@ import SVGtoPDF from 'svg-to-pdfkit';
 import * as fs from 'fs';
 import * as path from 'path';
 
+function getDejaVuPath(filename: string): string | null {
+  try {
+    return require.resolve(`dejavu-fonts-ttf/ttf/${filename}`);
+  } catch {
+    return path.join(process.cwd(), 'node_modules/dejavu-fonts-ttf/ttf', filename);
+  }
+}
+
 /** Order shape as returned by Prisma findUnique with include: { orderItems: true }. Dates may be Date or ISO string. */
 type OrderWithItems = {
   orderNumber: string;
@@ -25,9 +33,9 @@ const MARGIN_PT = 57;
 const PAGE_WIDTH = 595.28;
 const PAGE_HEIGHT = 841.89;
 const CONTENT_WIDTH = PAGE_WIDTH - 2 * MARGIN_PT;
-const FOOTER_HEIGHT = 28;
-const FOOTER_Y = PAGE_HEIGHT - MARGIN_PT - 14;
-const BODY_TOP = 102; // after company header block
+const FOOTER_HEIGHT = 22;
+const FOOTER_Y = PAGE_HEIGHT - MARGIN_PT - 12;
+const BODY_TOP = 100; // after company header block
 const TABLE_BOTTOM = PAGE_HEIGHT - MARGIN_PT - FOOTER_HEIGHT;
 
 // Company details — North Macedonia, Gostivar
@@ -53,9 +61,9 @@ const colors = {
   headerBg: '#f3f4f6',
 };
 
-// MKD (Makedon Denarı) — Turkish locale format, e.g. "120.000,00 MKD"
+// MKD (Makedon Denarı) — Turkish locale, no decimals, e.g. "120.000 MKD"
 function formatMKD(n: number): string {
-  const num = n.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const num = n.toLocaleString('tr-TR', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
   return `${num} MKD`;
 }
 
@@ -63,6 +71,10 @@ type Doc = InstanceType<typeof PDFDocument>;
 
 const STD_FONT = 'Helvetica';
 const STD_FONT_BOLD = 'Helvetica-Bold';
+const FONT_DEJAVU = 'DejaVu';
+const FONT_DEJAVU_BOLD = 'DejaVuBold';
+let PDF_FONT = STD_FONT;
+let PDF_FONT_BOLD = STD_FONT_BOLD;
 
 /** Transliterate Turkish chars to ASCII for Helvetica (no custom font needed). */
 function toAscii(s: string): string {
@@ -106,10 +118,10 @@ function drawHeader(doc: Doc): void {
     }
   }
   if (!logoDrawn) {
-    doc.fillColor(colors.gold).fontSize(16).font(STD_FONT_BOLD).text(COMPANY.name, MARGIN_PT, nameY);
+    doc.fillColor(colors.gold).fontSize(16).font(PDF_FONT_BOLD).text(COMPANY.name, MARGIN_PT, nameY);
   }
 
-  doc.fillColor(colors.textMuted).fontSize(9).font(STD_FONT);
+  doc.fillColor(colors.textMuted).fontSize(9).font(PDF_FONT);
   let lineY = blockTop;
   doc.text(COMPANY.address, detailsX, lineY, { width: detailsWidth, align: 'right' }); lineY += 12;
   doc.text(`${COMPANY.city}, ${COMPANY.postcode}`, detailsX, lineY, { width: detailsWidth, align: 'right' }); lineY += 12;
@@ -120,25 +132,25 @@ function drawHeader(doc: Doc): void {
   doc.moveTo(MARGIN_PT, 96).lineTo(PAGE_WIDTH - MARGIN_PT, 96).strokeColor(colors.border).stroke();
 }
 
-// Turkish labels for PDF
+// Macedonian labels for PDF (MK locale)
 const PDF_LABELS = {
-  orderDetails: 'Sipariş Detayları',
-  orderNo: 'Sipariş No',
-  date: 'Tarih',
-  supplier: 'Tedarikçi',
-  status: 'Durum',
-  item: 'Kalem',
-  unit: 'Birim',
-  price: 'Birim Fiyat',
-  qty: 'Miktar',
-  total: 'Tutar',
-  subtotal: 'Ara Toplam',
-  notes: 'Notlar',
-  page: 'Sayfa',
-  generated: 'Oluşturulma',
-  statusPending: 'Bekliyor',
-  statusDelivered: 'Teslim Edildi',
-  statusReconciled: 'Mutabık',
+  orderDetails: 'Детали за нарачка',
+  orderNo: 'Бр. нарачка',
+  date: 'Датум',
+  supplier: 'Добавувач',
+  status: 'Статус',
+  item: 'Ставка',
+  unit: 'Ед.',
+  price: 'Ед. цена',
+  qty: 'Кол.',
+  total: 'Вкупен износ',
+  subtotal: 'Меѓузбир',
+  notes: 'Забелешки',
+  page: 'Страница',
+  generated: 'Генерирано',
+  statusPending: 'Чека',
+  statusDelivered: 'Испорачано',
+  statusReconciled: 'Ускладено',
 };
 
 function orderStatusTr(s: string | null | undefined): string {
@@ -153,39 +165,40 @@ function drawMeta(doc: Doc, order: OrderWithItems): number {
   const boxTop = BODY_TOP;
   const boxHeight = 52;
   doc.rect(MARGIN_PT, boxTop, CONTENT_WIDTH, boxHeight).fill(colors.headerBg).stroke(colors.border);
-  doc.fillColor(colors.darkGray).fontSize(10).font(STD_FONT_BOLD).text(toAscii(PDF_LABELS.orderDetails), MARGIN_PT + 10, boxTop + 10);
-  doc.fillColor(colors.text).fontSize(9).font(STD_FONT);
+  doc.fillColor(colors.darkGray).fontSize(10).font(PDF_FONT_BOLD).text(PDF_LABELS.orderDetails, MARGIN_PT + 10, boxTop + 10);
+  doc.fillColor(colors.text).fontSize(9).font(PDF_FONT);
   const leftX = MARGIN_PT + 10;
   const rightX = MARGIN_PT + CONTENT_WIDTH * 0.55;
   const lineH = 14;
   const orderDateObj = order.orderDate instanceof Date ? order.orderDate : new Date(order.orderDate);
   const dateStr = orderDateObj.toISOString().split('T')[0].replace(/-/g, '.');
-  doc.text(toAscii(`${PDF_LABELS.orderNo}: ${String(order.orderNumber ?? '')}`), leftX, boxTop + 26);
+  doc.text(`${PDF_LABELS.orderNo}: ${String(order.orderNumber ?? '')}`, leftX, boxTop + 26);
   doc.text(`${PDF_LABELS.date}: ${dateStr}`, leftX, boxTop + 26 + lineH);
   doc.text(toAscii(`${PDF_LABELS.supplier}: ${String(order.supplierName ?? '')}`), rightX, boxTop + 26);
-  doc.text(toAscii(`${PDF_LABELS.status}: ${orderStatusTr(order.status)}`), rightX, boxTop + 26 + lineH);
+  doc.text(`${PDF_LABELS.status}: ${orderStatusTr(order.status)}`, rightX, boxTop + 26 + lineH);
   return boxTop + boxHeight + 10;
 }
 
 // Full width table; column widths sum to CONTENT_WIDTH
 const COL = {
-  name: 216,
-  unit: 48,
-  price: 72,
-  qty: 48,
-  total: Math.floor(CONTENT_WIDTH - 216 - 48 - 72 - 48),
+  name: 200,
+  unit: 52,
+  price: 88,
+  qty: 52,
+  total: Math.floor(CONTENT_WIDTH - 200 - 52 - 88 - 52),
 };
-const ROW_HEIGHT = 22;
+const ROW_HEIGHT = 20;
+const HEADER_ROW_HEIGHT = 24;
 const TABLE_WIDTH = CONTENT_WIDTH;
 
 function drawTableHeaderRow(doc: Doc, x: number, y: number): void {
-  doc.rect(x, y, TABLE_WIDTH, ROW_HEIGHT).fill(colors.darkGray).stroke(colors.border);
-  doc.fillColor('#fff').fontSize(9).font(STD_FONT_BOLD);
-  doc.text(toAscii(PDF_LABELS.item), x + 8, y + 6, { width: COL.name - 8 });
-  doc.text(toAscii(PDF_LABELS.unit), x + COL.name, y + 6, { width: COL.unit, align: 'right' });
-  doc.text(toAscii(PDF_LABELS.price), x + COL.name + COL.unit, y + 6, { width: COL.price, align: 'right' });
-  doc.text(toAscii(PDF_LABELS.qty), x + COL.name + COL.unit + COL.price, y + 6, { width: COL.qty, align: 'right' });
-  doc.text(toAscii(PDF_LABELS.total), x + COL.name + COL.unit + COL.price + COL.qty, y + 6, { width: COL.total - 4, align: 'right' });
+  doc.rect(x, y, TABLE_WIDTH, HEADER_ROW_HEIGHT).fill(colors.darkGray).stroke(colors.border);
+  doc.fillColor('#fff').fontSize(9).font(PDF_FONT_BOLD);
+  doc.text(PDF_LABELS.item, x + 8, y + 6, { width: COL.name - 8 });
+  doc.text(PDF_LABELS.unit, x + COL.name, y + 6, { width: COL.unit, align: 'right' });
+  doc.text(PDF_LABELS.price, x + COL.name + COL.unit, y + 6, { width: COL.price, align: 'right' });
+  doc.text(PDF_LABELS.qty, x + COL.name + COL.unit + COL.price, y + 6, { width: COL.qty, align: 'right' });
+  doc.text(PDF_LABELS.total, x + COL.name + COL.unit + COL.price + COL.qty, y + 6, { width: COL.total - 4, align: 'right' });
 }
 
 /** Items table: full width, header repeats on new page, alternating rows, right-aligned numbers.
@@ -198,7 +211,7 @@ function drawItemsTable(
   const x = MARGIN_PT;
   let y = startY;
 
-  doc.fillColor(colors.text).font(STD_FONT).fontSize(9);
+  doc.fillColor(colors.text).font(PDF_FONT).fontSize(9);
 
   const items = order.orderItems ?? [];
   for (let i = 0; i < items.length; i++) {
@@ -207,7 +220,7 @@ function drawItemsTable(
       doc.addPage({ size: 'A4', margin: MARGIN_PT });
       y = BODY_TOP;
       drawTableHeaderRow(doc, x, y);
-      y += ROW_HEIGHT;
+      y += HEADER_ROW_HEIGHT;
     }
 
     const item = items[i];
@@ -237,12 +250,12 @@ function drawTotals(doc: Doc, totalAmount: number, startY: number): number {
   const boxRight = PAGE_WIDTH - MARGIN_PT - rightPadding;
   const boxX = boxRight - boxWidth;
   const lineY = startY + 18;
-  doc.fillColor(colors.text).fontSize(9).font(STD_FONT);
-  doc.text(toAscii(PDF_LABELS.subtotal), boxX + 8, startY + 4);
+  doc.fillColor(colors.text).fontSize(9).font(PDF_FONT);
+  doc.text(PDF_LABELS.subtotal, boxX + 8, startY + 4);
   doc.text(formatMKD(totalAmount), boxRight - 8 - numbersWidth, startY + 4, { width: numbersWidth, align: 'right' });
   doc.moveTo(boxX, lineY).lineTo(boxX + boxWidth, lineY).strokeColor(colors.border).stroke();
-  doc.font(STD_FONT_BOLD).fontSize(10);
-  doc.text(toAscii(PDF_LABELS.total), boxX + 8, lineY + 6);
+  doc.font(PDF_FONT_BOLD).fontSize(10);
+  doc.text(PDF_LABELS.total, boxX + 8, lineY + 6);
   doc.text(formatMKD(totalAmount), boxRight - 8 - numbersWidth, lineY + 6, { width: numbersWidth, align: 'right' });
   return lineY + 22;
 }
@@ -253,8 +266,8 @@ function drawNotes(doc: Doc, notes: string | null, startY: number): number {
   const padding = 10;
   const cardHeight = 36;
   doc.rect(MARGIN_PT, startY, CONTENT_WIDTH, cardHeight).fill(colors.rowAlt).stroke(colors.border);
-  doc.fillColor(colors.textMuted).fontSize(8).font(STD_FONT_BOLD).text(toAscii(PDF_LABELS.notes), MARGIN_PT + padding, startY + 6);
-  doc.fillColor(colors.text).font(STD_FONT).fontSize(9).text(toAscii(notes), MARGIN_PT + padding, startY + 16, { width: CONTENT_WIDTH - 2 * padding });
+  doc.fillColor(colors.textMuted).fontSize(8).font(PDF_FONT_BOLD).text(PDF_LABELS.notes, MARGIN_PT + padding, startY + 6);
+  doc.fillColor(colors.text).font(PDF_FONT).fontSize(9).text(toAscii(notes), MARGIN_PT + padding, startY + 16, { width: CONTENT_WIDTH - 2 * padding });
   return startY + cardHeight + 10;
 }
 
@@ -263,10 +276,10 @@ function drawFooter(doc: Doc, pageNum: number, totalPages: number): void {
   const d = generated.getDate(); const m = generated.getMonth() + 1; const y = generated.getFullYear();
   const h = generated.getHours(); const min = generated.getMinutes();
   const generatedStr = `${String(d).padStart(2, '0')}.${String(m).padStart(2, '0')}.${y} ${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}`;
-  doc.fillColor(colors.textMuted).fontSize(7).font(STD_FONT);
-  doc.text(toAscii(`${COMPANY.name} | ${COMPANY.regNo} | Sartlar gecerlidir.`), MARGIN_PT, FOOTER_Y - 8);
-  doc.text(toAscii(`${PDF_LABELS.generated}: ${generatedStr}`), MARGIN_PT, FOOTER_Y);
-  doc.text(toAscii(`${PDF_LABELS.page} ${pageNum} / ${totalPages}`), PAGE_WIDTH - MARGIN_PT - 50, FOOTER_Y, { width: 50, align: 'right' });
+  doc.fillColor(colors.textMuted).fontSize(7).font(PDF_FONT);
+  doc.text(`${COMPANY.name} | ${COMPANY.regNo}`, MARGIN_PT, FOOTER_Y - 8);
+  doc.text(`${PDF_LABELS.generated}: ${generatedStr}`, MARGIN_PT, FOOTER_Y);
+  doc.text(`${PDF_LABELS.page} ${pageNum} / ${totalPages}`, PAGE_WIDTH - MARGIN_PT - 50, FOOTER_Y, { width: 50, align: 'right' });
 }
 
 export function generateOrderPdf(order: OrderWithItems): Promise<Buffer> {
@@ -278,20 +291,36 @@ export function generateOrderPdf(order: OrderWithItems): Promise<Buffer> {
       doc.on('end', () => resolve(Buffer.concat(chunks)));
       doc.on('error', reject);
 
+      PDF_FONT = STD_FONT;
+      PDF_FONT_BOLD = STD_FONT_BOLD;
+      const dejaVuPath = getDejaVuPath('DejaVuSans.ttf');
+      const dejaVuBoldPath = getDejaVuPath('DejaVuSans-Bold.ttf');
+      if (dejaVuPath && fs.existsSync(dejaVuPath)) {
+        doc.registerFont(FONT_DEJAVU, dejaVuPath);
+        PDF_FONT = FONT_DEJAVU;
+        doc.font(FONT_DEJAVU);
+      }
+      if (dejaVuBoldPath && fs.existsSync(dejaVuBoldPath)) {
+        doc.registerFont(FONT_DEJAVU_BOLD, dejaVuBoldPath);
+        PDF_FONT_BOLD = FONT_DEJAVU_BOLD;
+      }
+
       drawHeader(doc);
       let y = drawMeta(doc, order);
 
       drawTableHeaderRow(doc, MARGIN_PT, y);
-      y += ROW_HEIGHT;
+      y += HEADER_ROW_HEIGHT;
 
       const { endY } = drawItemsTable(doc, order, y);
       y = endY + 8;
 
-      const totalsHeight = 48 + 8;
-      const notesHeight = order.notes && order.notes.trim() ? 38 + 8 : 0;
+      const totalsHeight = 44 + 6;
+      const notesHeight = order.notes && order.notes.trim() ? 34 + 6 : 0;
       const requiredHeight = totalsHeight + notesHeight;
+      const spaceLeft = TABLE_BOTTOM - y;
 
-      if (y + requiredHeight > TABLE_BOTTOM) {
+      // Only add a new page if totals/notes truly don't fit (avoid extra blank or near-empty page)
+      if (spaceLeft < requiredHeight && spaceLeft < totalsHeight) {
         doc.addPage({ size: 'A4', margin: MARGIN_PT });
         drawHeader(doc);
         y = BODY_TOP;

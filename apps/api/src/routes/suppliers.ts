@@ -46,16 +46,36 @@ router.put('/:id', requireAdmin, validateBody(updateSupplierSchema), async (req:
   }
 });
 
-/** DELETE /suppliers/:id */
+/** DELETE /suppliers/:id - cannot delete if supplier has orders (use deactivate instead) */
 router.delete('/:id', requireAdmin, async (req: Request, res: Response): Promise<void> => {
   try {
     const { id } = req.params;
+    const orderCount = await prisma.order.count({ where: { supplierId: id } });
+    if (orderCount > 0) {
+      res.status(409).json({
+        success: false,
+        code: 'SUPPLIER_HAS_ORDERS',
+        error: 'Supplier has orders',
+      });
+      return;
+    }
     await prisma.supplier.delete({ where: { id } });
     res.json({ success: true });
   } catch (err: unknown) {
-    if (err && typeof err === 'object' && 'code' in err && err.code === 'P2025') {
-      res.status(404).json({ success: false, error: 'Supplier not found' });
-      return;
+    if (err && typeof err === 'object' && 'code' in err) {
+      const code = (err as { code: string }).code;
+      if (code === 'P2025') {
+        res.status(404).json({ success: false, error: 'Supplier not found' });
+        return;
+      }
+      if (code === 'P2003') {
+        res.status(409).json({
+          success: false,
+          code: 'SUPPLIER_HAS_ORDERS',
+          error: 'Supplier has orders',
+        });
+        return;
+      }
     }
     logError('DELETE /suppliers/:id', err);
     res.status(500).json({ success: false, error: 'Failed to delete supplier' });

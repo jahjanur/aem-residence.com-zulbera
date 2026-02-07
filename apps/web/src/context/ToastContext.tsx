@@ -24,10 +24,10 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
       {children}
       {message && (
         <div
-          className={`fixed bottom-4 right-4 z-50 px-4 py-3 rounded-xl shadow-modal border flex items-center gap-3 min-w-[280px] max-w-md ${
+          className={`fixed bottom-4 right-4 z-50 px-4 py-3 rounded-xl shadow-modal border-2 flex items-center gap-3 min-w-[280px] max-w-md bg-app-bg text-app-primary ${
             type === 'error'
-              ? 'bg-app-danger/95 text-white border-app-danger/50'
-              : 'bg-app-success/95 text-white border-app-success/50'
+              ? 'border-app-danger'
+              : 'border-app-gold'
           }`}
           role="alert"
         >
@@ -35,8 +35,8 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
           <button
             type="button"
             onClick={() => setMessage(null)}
-            className="flex h-8 w-8 items-center justify-center rounded-lg text-white/80 hover:text-white hover:bg-white/10 focus-visible:ring-2 focus-visible:ring-white/50"
-            aria-label="Dismiss"
+            className="flex h-8 w-8 items-center justify-center rounded-lg text-app-secondary hover:text-app-primary hover:bg-white/10 focus-visible:ring-2 focus-visible:ring-app-gold/50"
+            aria-label="Kapat"
           >
             ×
           </button>

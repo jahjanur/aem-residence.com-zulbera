@@ -8,6 +8,33 @@ import { logError } from '../lib/logger';
 const router = Router();
 router.use(requireAuth);
 
+/** Normalize category: trim and title-case to avoid duplicates */
+function normalizeCategory(cat: string): string {
+  const t = cat.trim();
+  if (!t) return t;
+  return t.replace(/\w\S*/g, (w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase());
+}
+
+/** GET /products/categories - distinct categories, normalized */
+router.get('/categories', async (_req: Request, res: Response): Promise<void> => {
+  try {
+    const rows = await prisma.product.findMany({
+      select: { category: true },
+      distinct: ['category'],
+      orderBy: { category: 'asc' },
+    });
+    const set = new Set<string>();
+    for (const r of rows) {
+      const n = normalizeCategory(r.category);
+      if (n) set.add(n);
+    }
+    res.json({ success: true, data: Array.from(set).sort() });
+  } catch (err) {
+    logError('GET /products/categories', err);
+    res.status(500).json({ success: false, error: 'Failed to fetch categories' });
+  }
+});
+
 /** GET /products */
 router.get('/', async (_req: Request, res: Response): Promise<void> => {
   try {
@@ -100,8 +127,9 @@ router.get('/search', async (req: Request, res: Response): Promise<void> => {
 /** POST /products */
 router.post('/', requireAdmin, validateBody(createProductSchema), async (req: Request, res: Response): Promise<void> => {
   try {
+    const data = { ...req.body, category: normalizeCategory(req.body.category) };
     const product = await prisma.product.create({
-      data: req.body,
+      data,
     });
     res.status(201).json({ success: true, data: product });
   } catch (err) {
@@ -114,8 +142,9 @@ router.post('/', requireAdmin, validateBody(createProductSchema), async (req: Re
 router.put('/:id', requireAdmin, validateBody(updateProductSchema), async (req: Request, res: Response): Promise<void> => {
   try {
     const { id } = req.params;
-    const { price, ...rest } = req.body;
-    const data = price !== undefined ? { ...rest, price } : rest;
+    const body = req.body as { name?: string; category?: string; measurementUnit?: string; price?: number; status?: string };
+    const data: { name?: string; category?: string; measurementUnit?: string; price?: number; status?: string } = { ...body };
+    if (data.category !== undefined) data.category = normalizeCategory(data.category);
     const product = await prisma.product.update({ where: { id }, data });
     res.json({ success: true, data: product });
   } catch (err: unknown) {

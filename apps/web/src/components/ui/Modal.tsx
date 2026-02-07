@@ -31,14 +31,19 @@ export function Modal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-[var(--overlay)] backdrop-blur-sm"
-      onClick={onClose}
+      className="fixed inset-0 z-50 flex flex-col sm:flex-row sm:items-center sm:justify-center sm:p-4 sm:bg-[var(--overlay)] sm:backdrop-blur-sm"
       role="dialog"
       aria-modal="true"
       aria-labelledby="modal-title"
     >
+      {/* Overlay: on mobile starts below header (3.5rem) so logo stays visible */}
       <div
-        className="w-full sm:max-w-lg sm:max-h-[90vh] h-full max-h-[95vh] sm:h-auto sm:rounded-xl bg-app-surface-2 border border-[var(--border)] shadow-modal flex flex-col"
+        className="fixed top-14 left-0 right-0 bottom-0 z-40 bg-[var(--overlay)] backdrop-blur-sm sm:absolute sm:inset-0"
+        onClick={onClose}
+        aria-hidden
+      />
+      <div
+        className="fixed left-0 right-0 top-14 bottom-0 z-50 flex flex-col w-full bg-app-surface-2 border border-[var(--border)] border-t shadow-modal sm:relative sm:top-0 sm:left-0 sm:right-0 sm:bottom-0 sm:max-w-lg sm:max-h-[90vh] sm:rounded-xl sm:border"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="sticky top-0 z-10 flex items-center justify-between px-4 sm:px-6 py-3 sm:py-4 border-b border-[var(--border)] bg-app-surface-2 shrink-0">

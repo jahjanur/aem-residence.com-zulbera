@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../lib/api';
@@ -69,6 +69,8 @@ export default function Products() {
   const [search, setSearch] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('');
   const [openCategories, setOpenCategories] = useState<Record<string, boolean>>({});
+  const [categoryDropdownOpen, setCategoryDropdownOpen] = useState(false);
+  const categoryInputRef = useRef<HTMLDivElement>(null);
   const [form, setForm] = useState({
     name: '',
     category: '',
@@ -84,9 +86,13 @@ export default function Products() {
     queryKey: ['products'],
     queryFn: () => api.get<Product[]>('/products'),
   });
+  const { data: categoriesData } = useQuery({
+    queryKey: ['products', 'categories'],
+    queryFn: () => api.get<string[]>('/products/categories'),
+  });
   const products = data?.data ?? [];
-
-  const categories = Array.from(new Set(products.map((p) => p.category))).sort();
+  const categoriesFromApi = categoriesData?.data ?? [];
+  const categories = categoriesFromApi.length > 0 ? categoriesFromApi : Array.from(new Set(products.map((p) => p.category))).sort();
   let filtered = products;
   if (search.trim()) filtered = filtered.filter((p) => p.name.toLowerCase().includes(search.toLowerCase()) || p.category.toLowerCase().includes(search.toLowerCase()));
   if (categoryFilter) filtered = filtered.filter((p) => p.category === categoryFilter);
@@ -145,6 +151,20 @@ export default function Products() {
     resetForm();
     setModalOpen(true);
   }
+
+  const categorySuggestions = form.category.trim()
+    ? categories.filter((c) => c.toLowerCase().includes(form.category.trim().toLowerCase())).slice(0, 8)
+    : categories.slice(0, 8);
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (categoryInputRef.current && !categoryInputRef.current.contains(e.target as Node)) {
+        setCategoryDropdownOpen(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   function toggleCategory(cat: string) {
     setOpenCategories((prev) => ({ ...prev, [cat]: !prev[cat] }));
@@ -292,9 +312,38 @@ export default function Products() {
             <label className="block text-sm font-medium text-app-secondary mb-1.5">{t('common.name')} *</label>
             <Input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} required />
           </div>
-          <div>
+          <div ref={categoryInputRef} className="relative">
             <label className="block text-sm font-medium text-app-secondary mb-1.5">{t('products.category')} *</label>
-            <Input value={form.category} onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))} required />
+            <Input
+              value={form.category}
+              onChange={(e) => {
+                setForm((f) => ({ ...f, category: e.target.value }));
+                setCategoryDropdownOpen(true);
+              }}
+              onFocus={() => setCategoryDropdownOpen(true)}
+              autoComplete="off"
+              required
+            />
+            {categoryDropdownOpen && categorySuggestions.length > 0 && (
+              <ul
+                className="absolute z-50 mt-1 w-full rounded-xl border border-[var(--border)] bg-app-surface-2 shadow-modal max-h-48 overflow-y-auto py-1"
+                role="listbox"
+              >
+                {categorySuggestions.map((c) => (
+                  <li
+                    key={c}
+                    role="option"
+                    className="px-4 py-2.5 text-app-primary cursor-pointer hover:bg-white/10 focus:bg-white/10"
+                    onClick={() => {
+                      setForm((f) => ({ ...f, category: c }));
+                      setCategoryDropdownOpen(false);
+                    }}
+                  >
+                    {c}
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
           <div>
             <label className="block text-sm font-medium text-app-secondary mb-1.5">{t('products.measurementUnit')} *</label>

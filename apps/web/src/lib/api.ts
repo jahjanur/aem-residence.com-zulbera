@@ -8,6 +8,8 @@ export interface ApiResponse<T = unknown> {
   success: boolean;
   data?: T;
   error?: string;
+  status?: number;
+  code?: string;
 }
 
 let onError: ((message: string) => void) | null = null;
@@ -32,7 +34,12 @@ async function request<T>(
   if (!res.ok) {
     const msg = json?.error ?? res.statusText ?? 'Request failed';
     onError?.(msg);
-    return { success: false, error: msg };
+    return {
+      success: false,
+      error: msg,
+      status: res.status,
+      code: json?.code,
+    };
   }
   return { success: true, data: json.data ?? json };
 }

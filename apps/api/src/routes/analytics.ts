@@ -9,7 +9,7 @@ router.use(requireAuth);
 /** GET /analytics/overview - stats for dashboard */
 router.get('/overview', async (_req: Request, res: Response): Promise<void> => {
   try {
-    const [supplierCount, productCount, pendingOrders, reconciledWithLoss] = await Promise.all([
+    const [supplierCount, productCount, pendingOrders, reconciledWithLoss, ordersAgg] = await Promise.all([
       prisma.supplier.count({ where: { status: 'ACTIVE' } }),
       prisma.product.count({ where: { status: 'ACTIVE' } }),
       prisma.order.count({ where: { status: 'PENDING' } }),
@@ -17,8 +17,14 @@ router.get('/overview', async (_req: Request, res: Response): Promise<void> => {
         _sum: { totalLossValue: true },
         where: { totalLossValue: { gt: 0 } },
       }),
+      prisma.order.aggregate({
+        _sum: { totalAmount: true },
+        _count: { id: true },
+      }),
     ]);
     const totalLosses = Number(reconciledWithLoss._sum.totalLossValue ?? 0);
+    const totalOrdersAmountMkd = Number(ordersAgg._sum.totalAmount ?? 0);
+    const totalOrdersCount = ordersAgg._count.id;
     res.json({
       success: true,
       data: {
@@ -27,6 +33,8 @@ router.get('/overview', async (_req: Request, res: Response): Promise<void> => {
         pendingOrders,
         totalLosses,
         lowStockCount: 0,
+        totalOrdersAmountMkd,
+        totalOrdersCount,
       },
     });
   } catch (err) {

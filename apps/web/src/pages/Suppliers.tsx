@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../lib/api';
 import { useAuth } from '../lib/useAuth';
+import { useToast } from '../context/ToastContext';
 import {
   Button,
   Card,
@@ -44,13 +45,32 @@ function IconTrash() {
     </svg>
   );
 }
+function IconPhone() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z" />
+    </svg>
+  );
+}
+
+const TOAST = {
+  deleteSuccess: 'Tedarikçi silindi.',
+  deleteBlocked: 'Silinemedi: Bu tedarikçi siparişlerde kullanılıyor. Pasif yapabilirsiniz.',
+  sessionExpired: 'Oturum süresi doldu. Lütfen tekrar giriş yapın.',
+  deleteFail: 'Silinemedi. Lütfen tekrar deneyin.',
+  setPassiveSuccess: 'Tedarikçi pasif yapıldı.',
+};
 
 export default function Suppliers() {
   const { t } = useTranslation();
   const { isAdmin } = useAuth();
+  const toast = useToast();
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<Supplier | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<Supplier | null>(null);
+  const [deleteBlockedSupplier, setDeleteBlockedSupplier] = useState<Supplier | null>(null);
+  const [phoneError, setPhoneError] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
   const [form, setForm] = useState({
     companyName: '',
     contactPerson: '',
@@ -60,35 +80,104 @@ export default function Suppliers() {
   });
   const queryClient = useQueryClient();
 
+  function sanitizePhone(value: string): string {
+    const allowed = value.replace(/[^\d\s+]/g, '');
+    const withPlus = allowed.startsWith('+') ? allowed : allowed.replace(/\+/g, '');
+    return withPlus;
+  }
+  /** For tel: href — digits only, optional leading + */
+  function phoneToTel(phone: string | null): string {
+    if (!phone || !phone.trim()) return '';
+    const digits = phone.replace(/\D/g, '');
+    if (!digits) return '';
+    const prefix = phone.trimStart().startsWith('+') ? '+' : '';
+    return `tel:${prefix}${digits}`;
+  }
+
   const { data } = useQuery({
     queryKey: ['suppliers'],
     queryFn: () => api.get<Supplier[]>('/suppliers'),
   });
-  const suppliers = data?.data ?? [];
+  const allSuppliers = data?.data ?? [];
+  const q = searchQuery.trim().toLowerCase();
+  const suppliers = q
+    ? allSuppliers.filter(
+        (s) =>
+          s.companyName.toLowerCase().includes(q) ||
+          (s.contactPerson?.toLowerCase().includes(q) ?? false) ||
+          (s.phone?.toLowerCase().includes(q) ?? false) ||
+          (s.location?.toLowerCase().includes(q) ?? false)
+      )
+    : allSuppliers;
 
   const create = useMutation({
-    mutationFn: (body: typeof form) => api.post<Supplier>('/suppliers', body),
+    mutationFn: async (body: typeof form) => {
+      const res = await api.post<Supplier>('/suppliers', body);
+      if (!res.success) throw res;
+      return res;
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['suppliers'] });
       setModalOpen(false);
       resetForm();
     },
+    onError: (err: { error?: string; code?: string }) => {
+      const msg = err.code === 'INVALID_PHONE' ? t('suppliers.phoneInvalid') : err.error ?? TOAST.deleteFail;
+      toast.show(msg, 'error');
+    },
   });
   const update = useMutation({
-    mutationFn: ({ id, body }: { id: string; body: Partial<typeof form> }) =>
-      api.put<Supplier>(`/suppliers/${id}`, body),
+    mutationFn: async ({ id, body }: { id: string; body: Partial<typeof form> }) => {
+      const res = await api.put<Supplier>(`/suppliers/${id}`, body);
+      if (!res.success) throw res;
+      return res;
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['suppliers'] });
       setModalOpen(false);
       setEditing(null);
       resetForm();
     },
+    onError: (err: { error?: string; code?: string }) => {
+      const msg = err.code === 'INVALID_PHONE' ? t('suppliers.phoneInvalid') : err.error ?? TOAST.deleteFail;
+      toast.show(msg, 'error');
+    },
   });
   const remove = useMutation({
-    mutationFn: (id: string) => api.delete(`/suppliers/${id}`),
+    mutationFn: async (payload: { supplier: Supplier }) => {
+      const res = await api.delete(`/suppliers/${payload.supplier.id}`);
+      if (!res.success) throw { ...res, __supplier: payload.supplier };
+      return res;
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['suppliers'] });
       setDeleteConfirm(null);
+      setDeleteBlockedSupplier(null);
+      toast.show(TOAST.deleteSuccess, 'success');
+    },
+    onError: (err: { error?: string; status?: number; code?: string; __supplier?: Supplier }) => {
+      const supplier = err.__supplier;
+      const msg =
+        err.status === 409 || err.code === 'SUPPLIER_HAS_ORDERS'
+          ? TOAST.deleteBlocked
+          : err.status === 401 || err.status === 403
+            ? TOAST.sessionExpired
+            : TOAST.deleteFail;
+      toast.show(msg, 'error');
+      if (err.code === 'SUPPLIER_HAS_ORDERS' && supplier) setDeleteBlockedSupplier(supplier);
+    },
+  });
+  const setPassive = useMutation({
+    mutationFn: (supplier: Supplier) =>
+      api.put<Supplier>(`/suppliers/${supplier.id}`, { status: 'INACTIVE' }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['suppliers'] });
+      setDeleteConfirm(null);
+      setDeleteBlockedSupplier(null);
+      toast.show(TOAST.setPassiveSuccess, 'success');
+    },
+    onError: () => {
+      toast.show(TOAST.deleteFail, 'error');
     },
   });
 
@@ -100,10 +189,12 @@ export default function Suppliers() {
       location: '',
       status: 'ACTIVE',
     });
+    setPhoneError(false);
   }
 
   function openEdit(s: Supplier) {
     setEditing(s);
+    setPhoneError(false);
     setForm({
       companyName: s.companyName,
       contactPerson: s.contactPerson ?? '',
@@ -122,6 +213,10 @@ export default function Suppliers() {
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (phoneError || (form.phone.length > 0 && !/^\+?[0-9\s]+$/.test(form.phone))) {
+      setPhoneError(true);
+      return;
+    }
     if (editing) {
       update.mutate({ id: editing.id, body: form });
     } else {
@@ -138,7 +233,23 @@ export default function Suppliers() {
         )}
       </div>
 
+      <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+        <label className="block text-sm font-medium text-app-secondary shrink-0">{t('suppliers.searchSuppliers')}</label>
+        <Input
+          placeholder={t('suppliers.searchPlaceholder')}
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          autoComplete="off"
+          className="max-w-md"
+        />
+      </div>
+
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-4">
+        {suppliers.length === 0 ? (
+          <p className="text-app-secondary text-sm col-span-full py-4">
+            {q ? t('suppliers.noSearchResults') : t('suppliers.noSuppliers')}
+          </p>
+        ) : null}
         {suppliers.map((s) => (
           <Card key={s.id} className="p-0">
             <CardContent className="flex flex-col gap-3">
@@ -153,16 +264,36 @@ export default function Suppliers() {
                     </Badge>
                   </div>
                 </div>
-                {isAdmin && (
-                  <div className="flex gap-1 shrink-0">
-                    <TableActionButton onClick={() => openEdit(s)} aria-label={t('common.edit')}>
-                      <span className="text-app-gold"><IconEdit /></span>
-                    </TableActionButton>
-                    <TableActionButton onClick={() => setDeleteConfirm(s)} aria-label={t('common.delete')}>
-                      <span className="text-app-danger"><IconTrash /></span>
-                    </TableActionButton>
-                  </div>
-                )}
+                <div className="flex gap-1 shrink-0">
+                  {phoneToTel(s.phone) ? (
+                    <a
+                      href={phoneToTel(s.phone)}
+                      className="inline-flex h-11 w-11 min-h-[44px] min-w-[44px] items-center justify-center rounded-xl text-app-secondary hover:bg-white/10 hover:text-app-primary focus-visible:ring-2 focus-visible:ring-app-gold/50"
+                      aria-label="Ara"
+                      title="Ara"
+                    >
+                      <span className="text-app-gold"><IconPhone /></span>
+                    </a>
+                  ) : (
+                    <span
+                      className="inline-flex h-11 w-11 min-h-[44px] min-w-[44px] items-center justify-center rounded-xl text-app-muted cursor-not-allowed"
+                      title="Telefon yok"
+                      aria-label="Telefon yok"
+                    >
+                      <IconPhone />
+                    </span>
+                  )}
+                  {isAdmin && (
+                    <>
+                      <TableActionButton onClick={() => openEdit(s)} aria-label={t('common.edit')}>
+                        <span className="text-app-gold"><IconEdit /></span>
+                      </TableActionButton>
+                      <TableActionButton onClick={() => setDeleteConfirm(s)} aria-label={t('common.delete')}>
+                        <span className="text-app-danger"><IconTrash /></span>
+                      </TableActionButton>
+                    </>
+                  )}
+                </div>
               </div>
             </CardContent>
           </Card>
@@ -212,8 +343,17 @@ export default function Suppliers() {
           <div>
             <label className="block text-sm font-medium text-app-secondary mb-1.5">{t('suppliers.phone')}</label>
             <Input
+              inputMode="numeric"
+              pattern="[0-9 +]*"
+              autoComplete="tel"
               value={form.phone}
-              onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))}
+              onChange={(e) => {
+                const raw = e.target.value;
+                const next = sanitizePhone(raw);
+                setPhoneError(raw !== next);
+                setForm((f) => ({ ...f, phone: next }));
+              }}
+              error={phoneError ? t('suppliers.phoneInvalid') : undefined}
             />
           </div>
           <div>
@@ -242,24 +382,45 @@ export default function Suppliers() {
       {isAdmin && (
       <Modal
         open={!!deleteConfirm}
-        onClose={() => setDeleteConfirm(null)}
+        onClose={() => { setDeleteConfirm(null); setDeleteBlockedSupplier(null); }}
         title={t('suppliers.deleteSupplier')}
         footer={
-          <>
-            <Button variant="secondary" onClick={() => setDeleteConfirm(null)} className="flex-1 sm:flex-initial min-h-[48px]">{t('common.cancel')}</Button>
-            <Button
-              variant="danger"
-              onClick={() => deleteConfirm && remove.mutate(deleteConfirm.id)}
-              className="flex-1 sm:flex-initial min-h-[48px] w-full sm:w-auto"
-            >
-              {t('common.delete')}
-            </Button>
-          </>
+          deleteBlockedSupplier ? (
+            <>
+              <Button variant="secondary" onClick={() => { setDeleteConfirm(null); setDeleteBlockedSupplier(null); }} className="flex-1 sm:flex-initial min-h-[48px]">{t('common.close')}</Button>
+              <Button
+                variant="primary"
+                onClick={() => deleteBlockedSupplier && setPassive.mutate(deleteBlockedSupplier)}
+                disabled={setPassive.isPending}
+                className="flex-1 sm:flex-initial min-h-[48px] w-full sm:w-auto"
+              >
+                {setPassive.isPending ? t('common.saving') : 'Pasif yap'}
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button variant="secondary" onClick={() => setDeleteConfirm(null)} className="flex-1 sm:flex-initial min-h-[48px]">{t('common.cancel')}</Button>
+              <Button
+                variant="danger"
+                onClick={() => deleteConfirm && remove.mutate({ supplier: deleteConfirm })}
+                disabled={remove.isPending}
+                className="flex-1 sm:flex-initial min-h-[48px] w-full sm:w-auto"
+              >
+                {t('common.delete')}
+              </Button>
+            </>
+          )
         }
       >
-        <p className="text-app-secondary">
-          {t('suppliers.deleteConfirm', { name: deleteConfirm?.companyName ?? '' })}
-        </p>
+        {deleteBlockedSupplier ? (
+          <p className="text-app-secondary">
+            Bu tedarikçi siparişlerde kullanıldığı için silinemez. Silmek yerine &quot;Pasif yap&quot; ile listeden kaldırabilirsiniz.
+          </p>
+        ) : (
+          <p className="text-app-secondary">
+            {t('suppliers.deleteConfirm', { name: deleteConfirm?.companyName ?? '' })}
+          </p>
+        )}
       </Modal>
       )}
     </div>

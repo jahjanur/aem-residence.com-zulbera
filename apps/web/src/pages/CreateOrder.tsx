@@ -203,7 +203,7 @@ export default function CreateOrder() {
   }
 
   return (
-    <div className="page-container space-y-4 md:space-y-6 pb-24 md:pb-0">
+    <div className={`page-container space-y-4 md:space-y-6 md:pb-0 ${rows.length > 0 ? 'pb-52' : 'pb-24'}`}>
       <h1 className="text-xl md:text-2xl font-semibold text-app-primary">{t('createOrder.title')}</h1>
 
       {createdOrder ? (
@@ -399,9 +399,10 @@ export default function CreateOrder() {
             </div>
 
             <div className="lg:col-span-1">
-              {/* Mobile: sticky bottom summary bar when there are items */}
+              {/* Mobile: sticky summary bar above bottom nav (bottom nav is ~64px + safe area) */}
               {rows.length > 0 && (
-                <div className="md:hidden fixed bottom-0 left-0 right-0 z-20 bg-app-surface-1 border-t border-[var(--border)] p-4 safe-area-pb shadow-[0_-4px_20px_rgba(0,0,0,0.3)]">
+                <div className="md:hidden fixed left-0 right-0 z-40 bg-app-surface-1 border-t border-[var(--border)] p-4 shadow-[0_-4px_20px_rgba(0,0,0,0.3)] bottom-20"
+                >
                   <div className="page-container flex flex-col gap-3">
                     <div className="flex justify-between text-app-primary font-semibold text-base">
                       <span>{t('createOrder.total')}</span>

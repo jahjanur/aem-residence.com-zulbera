@@ -30,17 +30,56 @@ function normalizeItems(
   return Array.from(map.values());
 }
 
-/** GET /orders?status=pending|delivered|reconciled */
+/** GET /orders?status=...&search=...&from=...&to=...&supplierId=...
+ *  Returns list + summary: totalSpendMkd, totalCount for the filtered set. */
 router.get('/', async (req: Request, res: Response): Promise<void> => {
   try {
     const status = req.query.status as string | undefined;
-    const where = status && ['PENDING', 'DELIVERED', 'RECONCILED'].includes(status) ? { status } : {};
-    const orders = await prisma.order.findMany({
+    const search = String(req.query.search || '').trim().toLowerCase();
+    const from = req.query.from as string | undefined;
+    const to = req.query.to as string | undefined;
+    const supplierId = req.query.supplierId as string | undefined;
+
+    const where: Record<string, unknown> = {};
+    if (status && ['PENDING', 'DELIVERED', 'RECONCILED'].includes(status)) where.status = status;
+    if (supplierId) where.supplierId = supplierId;
+    if (from || to) {
+      where.orderDate = {};
+      if (from) (where.orderDate as Record<string, Date>).gte = new Date(from);
+      if (to) {
+        const toDate = new Date(to);
+        toDate.setHours(23, 59, 59, 999);
+        (where.orderDate as Record<string, Date>).lte = toDate;
+      }
+    }
+
+    let orders = await prisma.order.findMany({
       where,
-      include: { orderItems: true },
+      include: { orderItems: true, reconciliation: { select: { id: true } } },
       orderBy: { orderDate: 'desc' },
     });
-    res.json({ success: true, data: orders });
+    if (search) {
+      const q = search.toLowerCase();
+      orders = orders.filter(
+        (o) =>
+          o.supplierName.toLowerCase().includes(q) ||
+          o.orderNumber.toLowerCase().includes(q)
+      );
+    }
+
+    const totalSpendMkd = orders.reduce((sum, o) => sum + Number(o.totalAmount), 0);
+    const list = orders.map((o) => ({
+      ...o,
+      hasReconciliation: !!o.reconciliation,
+    }));
+
+    res.json({
+      success: true,
+      data: {
+        list,
+        summary: { totalSpendMkd, totalCount: list.length },
+      },
+    });
   } catch (err) {
     logError('GET /orders', err);
     res.status(500).json({ success: false, error: 'Failed to fetch orders' });
