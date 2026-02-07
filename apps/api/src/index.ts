@@ -83,6 +83,20 @@ app.use('/inventory', inventoryRoutes);
 // Health
 app.get('/health', (_req, res) => res.json({ ok: true }));
 
+// Production: serve React SPA from public/ (one Node app = API + frontend on Hostinger)
+if (config.isProduction) {
+  const publicDir = path.join(__dirname, '..', 'public');
+  const fs = require('fs');
+  if (fs.existsSync(publicDir)) {
+    const apiPathPrefixes = ['/auth', '/suppliers', '/products', '/orders', '/reconciliations', '/control', '/analytics', '/inventory', '/health'];
+    app.use(express.static(publicDir, { index: false }));
+    app.get('*', (req: express.Request, res: express.Response, next: express.NextFunction) => {
+      if (apiPathPrefixes.some((p) => req.path.startsWith(p))) return next();
+      res.sendFile(path.join(publicDir, 'index.html'));
+    });
+  }
+}
+
 // Dev-only debug (disabled in production)
 if (!config.isProduction) {
   app.use('/debug', debugRoutes);

@@ -9,6 +9,9 @@ coverage
 .turbo
 *.tsbuildinfo
 
+# Deploy: built web app copied here for API to serve
+apps/api/public
+
 # SQLite dev DB and session store
 apps/api/prisma/*.db
 apps/api/prisma/prisma/*.db
