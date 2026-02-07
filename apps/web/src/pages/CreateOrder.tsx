@@ -8,7 +8,6 @@ import {
   CardHeader,
   Button,
   Input,
-  Select,
   Textarea,
   Table,
   TableHeader,
@@ -25,6 +24,7 @@ import { useToast } from '../context/ToastContext';
 interface Supplier {
   id: string;
   companyName: string;
+  contactPerson?: string | null;
   status: string;
 }
 interface Product {
@@ -76,6 +76,12 @@ export default function CreateOrder() {
   const [searchOpen, setSearchOpen] = useState(false);
   const searchRef = useRef<HTMLDivElement>(null);
 
+  const [supplierSearch, setSupplierSearch] = useState('');
+  const [supplierDropdownOpen, setSupplierDropdownOpen] = useState(false);
+  const supplierRef = useRef<HTMLDivElement>(null);
+
+  const [pdfPreviewUrl, setPdfPreviewUrl] = useState<string | null>(null);
+
   const queryClient = useQueryClient();
   const { t } = useTranslation();
   const { isAdmin } = useAuth();
@@ -100,6 +106,16 @@ export default function CreateOrder() {
   const suppliers = (suppliersData?.data ?? []).filter((s) => s.status === 'ACTIVE');
   const recentProducts = recentData?.data ?? [];
   const searchResults = searchData?.data ?? [];
+
+  const supplierQuery = supplierSearch.trim().toLowerCase();
+  const filteredSuppliers = supplierQuery
+    ? suppliers.filter(
+        (s) =>
+          s.companyName.toLowerCase().includes(supplierQuery) ||
+          (s.contactPerson && s.contactPerson.toLowerCase().includes(supplierQuery))
+      )
+    : suppliers;
+  const selectedSupplier = suppliers.find((s) => s.id === supplierId);
 
   const createOrder = useMutation({
     mutationFn: (body: { supplierId: string; orderDate: string; items: OrderItemRow[]; notes?: string }) =>
@@ -151,43 +167,80 @@ export default function CreateOrder() {
     createOrder.mutate({ supplierId, orderDate: orderDateStr, items: rows, notes: notes || undefined });
   }
 
-  function openPdf() {
-    if (!createdOrder?.id) return;
-    const base = import.meta.env.VITE_API_BASE ?? '/api';
+  const base = import.meta.env.VITE_API_BASE ?? '/api';
+
+  async function getPdfBlob(): Promise<Blob> {
+    if (!createdOrder?.id) throw new Error('No order');
     const url = `${base}/orders/${createdOrder.id}/pdf`;
-    const pdfWindow = window.open('', '_blank');
-    fetch(url, { credentials: 'include' })
-      .then(async (r) => {
-        if (!r.ok) {
-          const body = await r.text();
-          let msg = t('createOrder.pdfError');
-          try {
-            const json = JSON.parse(body);
-            if (json?.error) msg = json.error;
-          } catch {
-            if (body) msg = body.slice(0, 80);
-          }
-          throw new Error(msg);
-        }
-        return r.blob();
-      })
+    const r = await fetch(url, { credentials: 'include' });
+    if (!r.ok) {
+      const body = await r.text();
+      let msg = t('createOrder.pdfError');
+      try {
+        const json = JSON.parse(body);
+        if (json?.error) msg = json.error;
+      } catch {
+        if (body) msg = body.slice(0, 80);
+      }
+      throw new Error(msg);
+    }
+    return r.blob();
+  }
+
+  function downloadPdf() {
+    if (!createdOrder?.id) return;
+    getPdfBlob()
       .then((blob) => {
         const blobUrl = URL.createObjectURL(blob);
-        if (pdfWindow && !pdfWindow.closed) {
-          pdfWindow.location.href = blobUrl;
-        } else {
-          const a = document.createElement('a');
-          a.href = blobUrl;
-          a.download = `order-${createdOrder.orderNumber}.pdf`;
-          a.click();
-          URL.revokeObjectURL(blobUrl);
-        }
+        const a = document.createElement('a');
+        a.href = blobUrl;
+        a.download = `order-${createdOrder.orderNumber}.pdf`;
+        a.click();
+        URL.revokeObjectURL(blobUrl);
       })
-      .catch((err) => {
-        if (pdfWindow && !pdfWindow.closed) pdfWindow.close();
-        toast.show(err instanceof Error ? err.message : t('createOrder.pdfError'));
-      });
+      .catch((err) => toast.show(err instanceof Error ? err.message : t('createOrder.pdfError')));
   }
+
+  function sharePdf() {
+    if (!createdOrder?.id) return;
+    getPdfBlob()
+      .then((blob) => {
+        const file = new File([blob], `order-${createdOrder.orderNumber}.pdf`, { type: 'application/pdf' });
+        if (typeof navigator !== 'undefined' && navigator.share && navigator.canShare?.({ files: [file] })) {
+          return navigator.share({
+            title: `${createdOrder.orderNumber}`,
+            text: t('createOrder.shareOrderText', { orderNumber: createdOrder.orderNumber, supplier: createdOrder.supplierName }),
+            files: [file],
+          });
+        }
+        toast.show(t('createOrder.shareNotSupported'));
+      })
+      .catch((err) => toast.show(err instanceof Error ? err.message : t('createOrder.pdfError')));
+  }
+
+  useEffect(() => {
+    if (!createdOrder?.id) {
+      setPdfPreviewUrl(null);
+      return;
+    }
+    let revoked = false;
+    const url = `${base}/orders/${createdOrder.id}/pdf`;
+    fetch(url, { credentials: 'include' })
+      .then((r) => (r.ok ? r.blob() : Promise.reject(new Error('PDF failed'))))
+      .then((blob) => {
+        if (!revoked) setPdfPreviewUrl(URL.createObjectURL(blob));
+      })
+      .catch(() => {
+        if (!revoked) setPdfPreviewUrl(null);
+      });
+    return () => {
+      revoked = true;
+      setPdfPreviewUrl((prev) => {
+        if (prev) URL.revokeObjectURL(prev);
+        return null;
+      });
+    };
+  }, [createdOrder?.id]);
 
   if (!isAdmin) {
     return (
@@ -207,20 +260,39 @@ export default function CreateOrder() {
       <h1 className="text-xl md:text-2xl font-semibold text-app-primary">{t('createOrder.title')}</h1>
 
       {createdOrder ? (
-        <Card>
-          <CardContent>
-            <h2 className="text-lg font-semibold text-app-gold mb-2">{t('createOrder.orderCreated', { orderNumber: createdOrder.orderNumber })}</h2>
-            <p className="text-app-secondary mb-4">
-              {t('createOrder.supplierTotal', { supplier: createdOrder.supplierName, total: formatMKD(Number(createdOrder.totalAmount)) })}
-            </p>
-            <div className="flex flex-col sm:flex-row gap-3">
-              <Button onClick={openPdf} className="w-full sm:w-auto min-h-[48px]">{t('createOrder.viewDownloadPdf')}</Button>
-              <Button variant="secondary" onClick={() => { setCreatedOrder(null); setRows([]); setNotes(''); }} className="w-full sm:w-auto min-h-[48px]">
-                {t('createOrder.createAnother')}
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
+        <div className="space-y-4">
+          <Card>
+            <CardContent>
+              <h2 className="text-lg font-semibold text-app-gold mb-2">{t('createOrder.orderCreated', { orderNumber: createdOrder.orderNumber })}</h2>
+              <p className="text-app-secondary mb-4">
+                {t('createOrder.supplierTotal', { supplier: createdOrder.supplierName, total: formatMKD(Number(createdOrder.totalAmount)) })}
+              </p>
+              <div className="flex flex-wrap gap-3">
+                <Button onClick={sharePdf} className="min-h-[48px]">{t('createOrder.sharePdf')}</Button>
+                <Button onClick={downloadPdf} variant="secondary" className="min-h-[48px]">{t('createOrder.downloadPdf')}</Button>
+                <Button variant="ghost" onClick={() => { setCreatedOrder(null); setRows([]); setNotes(''); }} className="min-h-[48px]">
+                  {t('createOrder.createAnother')}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+          {pdfPreviewUrl && (
+            <Card>
+              <CardHeader>
+                <h3 className="text-sm font-semibold text-app-primary">{t('createOrder.pdfPreview')}</h3>
+              </CardHeader>
+              <CardContent>
+                <div className="rounded-lg border border-[var(--border)] bg-app-surface-2 overflow-hidden" style={{ minHeight: 480 }}>
+                  <iframe
+                    title={t('createOrder.pdfPreview')}
+                    src={pdfPreviewUrl}
+                    className="w-full h-[480px] md:h-[640px]"
+                  />
+                </div>
+              </CardContent>
+            </Card>
+          )}
+        </div>
       ) : (
         <form onSubmit={handleSubmit} className="space-y-4 md:space-y-6">
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 md:gap-6">
@@ -229,17 +301,53 @@ export default function CreateOrder() {
                 <Card>
                   <CardContent>
                     <label className="block text-sm font-medium text-app-secondary mb-1.5">{t('createOrder.supplierRequired')}</label>
-                    <Select
-                      value={supplierId}
-                      onChange={(e) => setSupplierId(e.target.value)}
-                      required
-                      className="min-h-[48px]"
-                    >
-                      <option value="">{t('createOrder.selectSupplier')}</option>
-                      {suppliers.map((s) => (
-                        <option key={s.id} value={s.id}>{s.companyName}</option>
-                      ))}
-                    </Select>
+                    <div className="relative" ref={supplierRef}>
+                      <Input
+                        type="text"
+                        placeholder={t('createOrder.selectSupplier')}
+                        value={supplierDropdownOpen ? supplierSearch : (selectedSupplier ? selectedSupplier.companyName : supplierSearch)}
+                        onChange={(e) => {
+                          setSupplierSearch(e.target.value);
+                          if (!e.target.value) setSupplierId('');
+                          setSupplierDropdownOpen(true);
+                        }}
+                        onFocus={() => {
+                          if (selectedSupplier) setSupplierSearch(selectedSupplier.companyName);
+                          setSupplierDropdownOpen(true);
+                        }}
+                        onBlur={() => setTimeout(() => setSupplierDropdownOpen(false), 180)}
+                        className="min-h-[48px]"
+                      />
+                      {supplierDropdownOpen && (
+                        <div className="absolute z-10 mt-1 w-full rounded-xl border border-[var(--border)] bg-app-surface-2 shadow-modal max-h-56 overflow-auto">
+                          {filteredSuppliers.length === 0 ? (
+                            <div className="p-3 text-app-muted text-sm">{t('createOrder.noResults')}</div>
+                          ) : (
+                            <ul className="py-1">
+                              {filteredSuppliers.map((s) => (
+                                <li key={s.id}>
+                                  <button
+                                    type="button"
+                                    className="w-full text-left px-4 py-3 min-h-[48px] text-base text-app-primary hover:bg-white/10 flex flex-col gap-0.5"
+                                    onClick={() => {
+                                      setSupplierId(s.id);
+                                      setSupplierSearch('');
+                                      setSupplierDropdownOpen(false);
+                                    }}
+                                  >
+                                    <span className="font-medium">{s.companyName}</span>
+                                    {s.contactPerson && (
+                                      <span className="text-sm text-app-muted">{s.contactPerson}</span>
+                                    )}
+                                  </button>
+                                </li>
+                              ))}
+                            </ul>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                    {supplierId && <input type="hidden" name="supplierId" value={supplierId} />}
                   </CardContent>
                 </Card>
                 <Card>
@@ -273,7 +381,7 @@ export default function CreateOrder() {
                             onClick={() => addProduct(p)}
                             className="!min-h-[44px] !py-2.5 !px-4 text-sm"
                           >
-                            {p.name} ({(p as Product).measurementUnit ?? (p as unknown as { unit?: string }).unit ?? 'adet'})
+                            {p.name}
                           </Button>
                         ))}
                       </div>
@@ -306,7 +414,7 @@ export default function CreateOrder() {
                                   className="w-full text-left px-4 py-3 min-h-[48px] text-base text-app-primary hover:bg-white/10 flex justify-between items-center gap-2"
                                   onClick={() => addProduct(p)}
                                 >
-                                  <span className="truncate">{p.name} ({(p as Product).measurementUnit ?? (p as unknown as { unit?: string }).unit ?? 'adet'})</span>
+                                  <span className="truncate">{p.name}</span>
                                   <span className="text-app-gold shrink-0">{formatMKD(Number(p.price))}</span>
                                 </button>
                               </li>

@@ -7,12 +7,15 @@ export function Modal({
   title,
   children,
   footer,
+  size = 'default',
 }: {
   open: boolean;
   onClose: () => void;
   title: string;
   children: ReactNode;
   footer?: ReactNode;
+  /** 'default' = max-w-lg, 'wide' = 80% viewport width */
+  size?: 'default' | 'wide';
 }) {
   const { t } = useTranslation();
   useEffect(() => {
@@ -29,6 +32,8 @@ export function Modal({
 
   if (!open) return null;
 
+  const maxWidthClass = size === 'wide' ? 'sm:max-w-[80vw]' : 'sm:max-w-lg';
+
   return (
     <div
       className="fixed inset-0 z-50 flex flex-col sm:flex-row sm:items-center sm:justify-center sm:p-4 sm:bg-[var(--overlay)] sm:backdrop-blur-sm"
@@ -43,7 +48,7 @@ export function Modal({
         aria-hidden
       />
       <div
-        className="fixed left-0 right-0 top-14 bottom-0 z-50 flex flex-col w-full bg-app-surface-2 border border-[var(--border)] border-t shadow-modal sm:relative sm:top-0 sm:left-0 sm:right-0 sm:bottom-0 sm:max-w-lg sm:max-h-[90vh] sm:rounded-xl sm:border"
+        className={`fixed left-0 right-0 top-14 bottom-0 z-50 flex flex-col w-full bg-app-surface-2 border border-[var(--border)] border-t shadow-modal sm:relative sm:top-0 sm:left-0 sm:right-0 sm:bottom-0 ${maxWidthClass} sm:max-h-[90vh] sm:rounded-xl sm:border`}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="sticky top-0 z-10 flex items-center justify-between px-4 sm:px-6 py-3 sm:py-4 border-b border-[var(--border)] bg-app-surface-2 shrink-0">

@@ -103,6 +103,11 @@
     "orderCreated": "Sipariş oluşturuldu: {{orderNumber}}",
     "supplierTotal": "Tedarikçi: {{supplier}} · Tutar: {{total}}",
     "viewDownloadPdf": "PDF Görüntüle / İndir",
+    "sharePdf": "Paylaş",
+    "downloadPdf": "PDF İndir",
+    "pdfPreview": "PDF Önizleme",
+    "shareOrderText": "Sipariş {{orderNumber}} — {{supplier}}",
+    "shareNotSupported": "Bu cihazda paylaşım desteklenmiyor. PDF İndir ile indirip paylaşabilirsiniz.",
     "pdfError": "PDF yüklenemedi.",
     "createAnother": "Yeni sipariş",
     "supplierRequired": "Tedarikçi *",
@@ -155,6 +160,7 @@
     "reconciled": "Mutabakatlı",
     "pending": "Bekliyor",
     "pdf": "PDF",
+    "view": "Görüntüle",
     "noOrders": "Sipariş bulunamadı."
   },
   "controlPanel": {

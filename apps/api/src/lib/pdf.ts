@@ -36,7 +36,9 @@ const CONTENT_WIDTH = PAGE_WIDTH - 2 * MARGIN_PT;
 const FOOTER_HEIGHT = 22;
 const FOOTER_Y = PAGE_HEIGHT - MARGIN_PT - 12;
 const BODY_TOP = 100; // after company header block
-const TABLE_BOTTOM = PAGE_HEIGHT - MARGIN_PT - FOOTER_HEIGHT;
+// Reserve space for totals (~50pt) + notes (~46pt) + footer (~22pt) + gap so we never draw past the page or add an extra blank page
+const RESERVED_BOTTOM = 50 + 46 + FOOTER_HEIGHT + 20;
+const TABLE_BOTTOM = PAGE_HEIGHT - MARGIN_PT - RESERVED_BOTTOM;
 
 // Company details — North Macedonia, Gostivar
 const COMPANY = {
@@ -153,6 +155,27 @@ const PDF_LABELS = {
   statusReconciled: 'Ускладено',
 };
 
+/** Map Turkish/Latin measurement units to Macedonian for PDF. */
+const UNIT_TO_MACEDONIAN: Record<string, string> = {
+  adet: 'бр.',
+  kg: 'кг',
+  ton: 'т',
+  litre: 'л',
+  'm': 'м',
+  'm²': 'м²',
+  'm³': 'м³',
+  torba: 'вреќа',
+  paket: 'пакет',
+  kutu: 'кутија',
+  rulo: 'ролна',
+};
+
+function unitToMacedonian(unit: string | null | undefined): string {
+  if (!unit || !unit.trim()) return '';
+  const key = unit.trim().toLowerCase();
+  return UNIT_TO_MACEDONIAN[key] ?? toAscii(unit);
+}
+
 function orderStatusTr(s: string | null | undefined): string {
   if (s === 'PENDING') return PDF_LABELS.statusPending;
   if (s === 'DELIVERED') return PDF_LABELS.statusDelivered;
@@ -202,22 +225,26 @@ function drawTableHeaderRow(doc: Doc, x: number, y: number): void {
 }
 
 /** Items table: full width, header repeats on new page, alternating rows, right-aligned numbers.
- * addPage() only when there is a row to draw and it does not fit on the current page. */
+ * addPage() ONLY when we are about to draw a row and it would not fit on the current page (next row would overflow). */
 function drawItemsTable(
   doc: Doc,
   order: OrderWithItems,
   startY: number
-): { endY: number } {
+): { endY: number; pageCount: number } {
   const x = MARGIN_PT;
   let y = startY;
+  let pageCount = 1; // we start on page 0 (first page)
 
   doc.fillColor(colors.text).font(PDF_FONT).fontSize(9);
 
   const items = order.orderItems ?? [];
   for (let i = 0; i < items.length; i++) {
-    const rowWouldOverflow = y + ROW_HEIGHT > TABLE_BOTTOM;
-    if (rowWouldOverflow) {
+    // Only add a new page when the NEXT row would overflow the table area (and we have a row to draw)
+    const nextRowBottom = y + ROW_HEIGHT;
+    const wouldOverflow = nextRowBottom > TABLE_BOTTOM;
+    if (wouldOverflow) {
       doc.addPage({ size: 'A4', margin: MARGIN_PT });
+      pageCount += 1;
       y = BODY_TOP;
       drawTableHeaderRow(doc, x, y);
       y += HEADER_ROW_HEIGHT;
@@ -232,14 +259,14 @@ function drawItemsTable(
     doc.rect(x, rowY, TABLE_WIDTH, ROW_HEIGHT).fill(fill).stroke(colors.border);
     doc.fillColor(colors.text);
     doc.text(toAscii(String(item.name ?? '')), x + 8, rowY + 5, { width: COL.name - 10 });
-    doc.text(toAscii(String(item.unit ?? '')), x + COL.name, rowY + 5, { width: COL.unit, align: 'right' });
+    doc.text(unitToMacedonian(item.unit), x + COL.name, rowY + 5, { width: COL.unit, align: 'right' });
     doc.text(formatMKD(price), x + COL.name + COL.unit, rowY + 5, { width: COL.price, align: 'right' });
     doc.text(String(qty), x + COL.name + COL.unit + COL.price, rowY + 5, { width: COL.qty, align: 'right' });
     doc.text(formatMKD(total), x + COL.name + COL.unit + COL.price + COL.qty, rowY + 5, { width: COL.total - 4, align: 'right' });
     y += ROW_HEIGHT;
   }
 
-  return { endY: y };
+  return { endY: y, pageCount };
 }
 
 /** Totals block: invoice-style, right-aligned, MKD. */
@@ -271,15 +298,18 @@ function drawNotes(doc: Doc, notes: string | null, startY: number): number {
   return startY + cardHeight + 10;
 }
 
+/** Draw footer on the current page only. Use width large enough so page number never wraps (avoids stray "1" on next page). */
 function drawFooter(doc: Doc, pageNum: number, totalPages: number): void {
+  const y = FOOTER_Y;
   const generated = new Date();
-  const d = generated.getDate(); const m = generated.getMonth() + 1; const y = generated.getFullYear();
+  const d = generated.getDate(); const m = generated.getMonth() + 1; const yr = generated.getFullYear();
   const h = generated.getHours(); const min = generated.getMinutes();
-  const generatedStr = `${String(d).padStart(2, '0')}.${String(m).padStart(2, '0')}.${y} ${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}`;
+  const generatedStr = `${String(d).padStart(2, '0')}.${String(m).padStart(2, '0')}.${yr} ${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}`;
   doc.fillColor(colors.textMuted).fontSize(7).font(PDF_FONT);
-  doc.text(`${COMPANY.name} | ${COMPANY.regNo}`, MARGIN_PT, FOOTER_Y - 8);
-  doc.text(`${PDF_LABELS.generated}: ${generatedStr}`, MARGIN_PT, FOOTER_Y);
-  doc.text(`${PDF_LABELS.page} ${pageNum} / ${totalPages}`, PAGE_WIDTH - MARGIN_PT - 50, FOOTER_Y, { width: 50, align: 'right' });
+  doc.text(`${COMPANY.name} | ${COMPANY.regNo}`, MARGIN_PT, y - 8);
+  doc.text(`${PDF_LABELS.generated}: ${generatedStr}`, MARGIN_PT, y);
+  // Width 90 so "Страница 1 / 1" or "Страница 12 / 12" fits on one line and never wraps to a new page
+  doc.text(`${PDF_LABELS.page} ${pageNum} / ${totalPages}`, PAGE_WIDTH - MARGIN_PT - 90, y, { width: 90, align: 'right' });
 }
 
 export function generateOrderPdf(order: OrderWithItems): Promise<Buffer> {
@@ -311,28 +341,16 @@ export function generateOrderPdf(order: OrderWithItems): Promise<Buffer> {
       drawTableHeaderRow(doc, MARGIN_PT, y);
       y += HEADER_ROW_HEIGHT;
 
-      const { endY } = drawItemsTable(doc, order, y);
+      const { endY, pageCount } = drawItemsTable(doc, order, y);
       y = endY + 8;
-
-      const totalsHeight = 44 + 6;
-      const notesHeight = order.notes && order.notes.trim() ? 34 + 6 : 0;
-      const requiredHeight = totalsHeight + notesHeight;
-      const spaceLeft = TABLE_BOTTOM - y;
-
-      // Only add a new page if totals/notes truly don't fit (avoid extra blank or near-empty page)
-      if (spaceLeft < requiredHeight && spaceLeft < totalsHeight) {
-        doc.addPage({ size: 'A4', margin: MARGIN_PT });
-        drawHeader(doc);
-        y = BODY_TOP;
-      }
 
       y = drawTotals(doc, Number(order.totalAmount), y);
       y = drawNotes(doc, order.notes ?? null, y);
 
-      const totalPages = doc.bufferedPageRange().count;
-      for (let i = 0; i < totalPages; i++) {
+      // Draw footer ONLY on pages that have content (use our pageCount, not bufferedPageRange, to avoid drawing on any stray blank page)
+      for (let i = 0; i < pageCount; i++) {
         doc.switchToPage(i);
-        drawFooter(doc, i + 1, totalPages);
+        drawFooter(doc, i + 1, pageCount);
       }
 
       doc.end();

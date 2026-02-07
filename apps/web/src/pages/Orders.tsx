@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../lib/api';
@@ -13,8 +13,10 @@ import {
   TableRow,
   TableCell,
   Badge,
+  Modal,
 } from '../components/ui';
 import { formatMKD } from '../lib/formatMKD';
+import { useToast } from '../context/ToastContext';
 
 
 interface OrderRow {
@@ -44,11 +46,16 @@ function formatDate(d: string): string {
   return new Date(d).toLocaleDateString('tr-TR', { dateStyle: 'medium' });
 }
 
+const base = import.meta.env.VITE_API_BASE ?? '/api';
+
 export default function Orders() {
   const { t } = useTranslation();
+  const toast = useToast();
   const [search, setSearch] = useState('');
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
+  const [viewingOrder, setViewingOrder] = useState<OrderRow | null>(null);
+  const [pdfPreviewUrl, setPdfPreviewUrl] = useState<string | null>(null);
 
   const params = new URLSearchParams();
   if (search.trim()) params.set('search', search.trim());
@@ -65,15 +72,77 @@ export default function Orders() {
   const orders = response && 'list' in response ? response.list : [];
   const summary = response && 'summary' in response ? response.summary : { totalSpendMkd: 0, totalCount: 0 };
 
-  async function openPdf(orderId: string) {
-    try {
-      const blob = await api.blob(`/orders/${orderId}/pdf`);
-      const url = URL.createObjectURL(blob);
-      window.open(url, '_blank', 'noopener');
-    } catch {
-      // silent fail or toast
+  async function getPdfBlob(orderId: string): Promise<Blob> {
+    const url = `${base}/orders/${orderId}/pdf`;
+    const r = await fetch(url, { credentials: 'include' });
+    if (!r.ok) {
+      const body = await r.text();
+      let msg = t('createOrder.pdfError');
+      try {
+        const json = JSON.parse(body);
+        if (json?.error) msg = json.error;
+      } catch {
+        if (body) msg = body.slice(0, 80);
+      }
+      throw new Error(msg);
     }
+    return r.blob();
   }
+
+  function downloadPdf() {
+    if (!viewingOrder) return;
+    getPdfBlob(viewingOrder.id)
+      .then((blob) => {
+        const blobUrl = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = blobUrl;
+        a.download = `order-${viewingOrder.orderNumber}.pdf`;
+        a.click();
+        URL.revokeObjectURL(blobUrl);
+      })
+      .catch((err) => toast.show(err instanceof Error ? err.message : t('createOrder.pdfError')));
+  }
+
+  function sharePdf() {
+    if (!viewingOrder) return;
+    getPdfBlob(viewingOrder.id)
+      .then((blob) => {
+        const file = new File([blob], `order-${viewingOrder.orderNumber}.pdf`, { type: 'application/pdf' });
+        if (typeof navigator !== 'undefined' && navigator.share && navigator.canShare?.({ files: [file] })) {
+          return navigator.share({
+            title: viewingOrder.orderNumber,
+            text: t('createOrder.shareOrderText', { orderNumber: viewingOrder.orderNumber, supplier: viewingOrder.supplierName }),
+            files: [file],
+          });
+        }
+        toast.show(t('createOrder.shareNotSupported'));
+      })
+      .catch((err) => toast.show(err instanceof Error ? err.message : t('createOrder.pdfError')));
+  }
+
+  useEffect(() => {
+    if (!viewingOrder) {
+      setPdfPreviewUrl(null);
+      return;
+    }
+    let revoked = false;
+    const url = `${base}/orders/${viewingOrder.id}/pdf`;
+    fetch(url, { credentials: 'include' })
+      .then((r) => (r.ok ? r.blob() : Promise.reject(new Error('PDF failed'))))
+      .then((blob) => {
+        if (!revoked) setPdfPreviewUrl(URL.createObjectURL(blob));
+      })
+      .catch(() => {
+        if (!revoked) setPdfPreviewUrl(null);
+      });
+    return () => {
+      revoked = true;
+      setPdfPreviewUrl((prev) => {
+        if (prev) URL.revokeObjectURL(prev);
+        return null;
+      });
+    };
+  }, [viewingOrder?.id]);
 
   return (
     <div className="page-container space-y-4 md:space-y-6">
@@ -133,7 +202,7 @@ export default function Orders() {
                 <TableHead>{t('common.status')}</TableHead>
                 <TableHead className="text-right">{t('orders.total')}</TableHead>
                 <TableHead>{t('orders.reconciliation')}</TableHead>
-                <TableHead className="text-right">{t('orders.pdf')}</TableHead>
+                <TableHead className="text-right">{t('orders.view')}</TableHead>
               </TableHeader>
               <TableBody>
                 {orders.map((o) => (
@@ -158,10 +227,10 @@ export default function Orders() {
                       <Button
                         size="sm"
                         variant="ghost"
-                        onClick={() => openPdf(o.id)}
+                        onClick={() => setViewingOrder(o)}
                         className="min-h-[36px]"
                       >
-                        PDF
+                        {t('orders.view')}
                       </Button>
                     </TableCell>
                   </TableRow>
@@ -171,6 +240,45 @@ export default function Orders() {
           </div>
         )}
       </Card>
+
+      {/* View order modal: Share, WhatsApp, Download PDF, PDF preview */}
+      <Modal
+        open={!!viewingOrder}
+        onClose={() => setViewingOrder(null)}
+        title={viewingOrder ? `${t('orders.orderNumber')}: ${viewingOrder.orderNumber}` : ''}
+        size="wide"
+        footer={
+          <Button variant="secondary" onClick={() => setViewingOrder(null)} className="min-h-[48px]">
+            {t('common.close')}
+          </Button>
+        }
+      >
+        <div className="flex flex-col gap-4 p-4 sm:p-6 overflow-auto">
+          {viewingOrder && (
+            <>
+              <p className="text-app-secondary text-sm">
+                {viewingOrder.supplierName} · {formatMKD(Number(viewingOrder.totalAmount))}
+              </p>
+              <div className="flex flex-wrap gap-2 sm:gap-3">
+                <Button onClick={sharePdf} size="sm" className="md:min-h-[48px] md:px-5 md:py-2.5 md:text-base">{t('createOrder.sharePdf')}</Button>
+                <Button onClick={downloadPdf} size="sm" variant="secondary" className="md:min-h-[48px] md:px-5 md:py-2.5 md:text-base">{t('createOrder.downloadPdf')}</Button>
+              </div>
+              {pdfPreviewUrl && (
+                <div className="space-y-2">
+                  <h3 className="text-sm font-semibold text-app-primary">{t('createOrder.pdfPreview')}</h3>
+                  <div className="rounded-lg border border-[var(--border)] bg-app-surface-2 overflow-hidden">
+                    <iframe
+                      title={t('createOrder.pdfPreview')}
+                      src={pdfPreviewUrl}
+                      className="w-full h-[62vh] min-h-[380px] md:h-[520px]"
+                    />
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      </Modal>
     </div>
   );
 }

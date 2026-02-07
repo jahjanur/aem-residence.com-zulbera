@@ -77,9 +77,8 @@ export default function AppLayout() {
     <div className="min-h-screen bg-app-bg flex">
       {/* Sidebar: desktop only (lg+). Fixed so it does NOT take layout width on any breakpoint. */}
       <aside className="hidden lg:flex lg:flex-col lg:w-56 lg:fixed lg:inset-y-0 left-0 border-r border-[var(--border)] bg-app-surface-1 z-20">
-        <div className="p-4 border-b border-[var(--border)] flex flex-col items-center gap-2">
-          <img src={logo} alt="AEM Residence" width={80} height={80} className="h-20 w-auto object-contain" decoding="async" />
-          <span className="text-app-secondary text-sm font-medium">{t('nav.operations')}</span>
+        <div className="p-4 border-b border-[var(--border)] flex flex-col items-center">
+          <img src={logo} alt="AEM Residence" width={120} height={120} className="h-28 w-auto object-contain" decoding="async" />
         </div>
         <nav className="flex-1 p-3 space-y-0.5 overflow-y-auto" aria-label="Main navigation">
           {navKeys.map((key) => (
