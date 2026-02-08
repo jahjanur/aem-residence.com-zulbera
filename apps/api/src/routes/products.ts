@@ -70,7 +70,7 @@ router.get('/recent', async (req: Request, res: Response): Promise<void> => {
       take: 20,
       select: { id: true },
     });
-    const orderIds = recentOrders.map((o) => o.id);
+    const orderIds = recentOrders.map((o: { id: string }) => o.id);
     const items = await prisma.orderItem.findMany({
       where: { orderId: { in: orderIds }, productId: { not: null } },
       select: { productId: true },
@@ -92,7 +92,7 @@ router.get('/recent', async (req: Request, res: Response): Promise<void> => {
       where: { id: { in: ids }, status: 'ACTIVE' },
     });
     const byOrder = new Map(ids.map((id, i) => [id, i]));
-    products.sort((a, b) => (byOrder.get(a.id) ?? 99) - (byOrder.get(b.id) ?? 99));
+    products.sort((a: { id: string }, b: { id: string }) => (byOrder.get(a.id) ?? 99) - (byOrder.get(b.id) ?? 99));
     res.json({ success: true, data: products });
   } catch (err) {
     logError('GET /products/recent', err);

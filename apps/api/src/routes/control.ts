@@ -16,7 +16,7 @@ router.get('/summary', async (_req: Request, res: Response): Promise<void> => {
     let totalItemsMissing = 0;
     let totalLossSum = 0;
     for (const inc of incidents) {
-      totalItemsMissing += inc.items.reduce((s, i) => s + i.missingQty, 0);
+      totalItemsMissing += inc.items.reduce((s: number, i: { missingQty: number }) => s + i.missingQty, 0);
       totalLossSum += Number(inc.totalLossValue);
     }
     res.json({

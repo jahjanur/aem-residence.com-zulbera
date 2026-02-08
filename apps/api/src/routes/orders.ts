@@ -61,14 +61,14 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
     if (search) {
       const q = search.toLowerCase();
       orders = orders.filter(
-        (o) =>
+        (o: { supplierName: string; orderNumber: string }) =>
           o.supplierName.toLowerCase().includes(q) ||
           o.orderNumber.toLowerCase().includes(q)
       );
     }
 
-    const totalSpendMkd = orders.reduce((sum, o) => sum + Number(o.totalAmount), 0);
-    const list = orders.map((o) => ({
+    const totalSpendMkd = orders.reduce((sum: number, o: { totalAmount: unknown }) => sum + Number(o.totalAmount), 0);
+    const list = orders.map((o: { reconciliation?: unknown } & Record<string, unknown>) => ({
       ...o,
       hasReconciliation: !!o.reconciliation,
     }));
