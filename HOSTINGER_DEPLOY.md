@@ -12,7 +12,8 @@ Hostinger supports **Express, Vite, React**, and a few other JS frameworks. This
 
 - **Application Root:** leave as the **repo root** (the folder with `package.json`, `apps/`, `packages/`).
 - **Build command:** `npm ci && npm run build:zulbera` (or `npm run build:deploy` if not using `/zulbera`).
-- **Start command:** `npm run start`.
+- **Start command:** `npm run start` (or leave empty if Hostinger uses the entry file to start).
+- **Entry file:** If Hostinger requires an entry file, set it to **`server.js`** (root-level file that starts the API).
 - Set **environment variables** in the Hostinger Node.js app panel.
 
 **If the error still appears**, set **Application Root** to **`apps/api`** so Hostinger sees the Express app directly:
