@@ -17,7 +17,10 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <QueryClientProvider client={queryClient}>
       <ToastProvider>
-        <BrowserRouter>
+        <BrowserRouter basename={(() => {
+          const p = (import.meta.env.VITE_BASE_PATH ?? '').replace(/\/?$/, '');
+          return p ? `/${p}` : '/';
+        })()}>
           <App />
         </BrowserRouter>
       </ToastProvider>

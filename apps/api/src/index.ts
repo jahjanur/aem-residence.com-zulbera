@@ -39,7 +39,7 @@ app.use(cors({
   allowedHeaders: ['Content-Type', 'Authorization'],
 }));
 
-// Session: httpOnly cookies, store in files (prisma/sessions)
+// Session: httpOnly cookies, store in files (prisma/sessions). When served under BASE_PATH, limit cookie to that path.
 app.use(
   session({
     store: new FileStore({
@@ -54,15 +54,17 @@ app.use(
       secure: config.isProduction,
       maxAge: 7 * 24 * 60 * 60 * 1000,
       sameSite: config.isProduction ? 'lax' : 'lax',
+      path: config.basePath || '/',
     },
   })
 );
 
-app.use(express.json({ limit: '1mb' }));
-app.use(sanitizeBody);
+// All API + SPA logic on a router so we can mount at BASE_PATH (e.g. /zulbera) or at /
+const router = express.Router();
+router.use(express.json({ limit: '1mb' }));
+router.use(sanitizeBody);
 
-// Request logging
-app.use((req, res, next) => {
+router.use((req, res, next) => {
   const start = Date.now();
   res.on('finish', () => {
     logRequest(req.method, req.path, res.statusCode, Date.now() - start);
@@ -70,18 +72,15 @@ app.use((req, res, next) => {
   next();
 });
 
-// Routes (rate limit applied only to login inside auth router)
-app.use('/auth', authRoutes);
-app.use('/suppliers', suppliersRoutes);
-app.use('/products', productsRoutes);
-app.use('/orders', ordersRoutes);
-app.use('/reconciliations', reconciliationsRoutes);
-app.use('/control', controlRoutes);
-app.use('/analytics', analyticsRoutes);
-app.use('/inventory', inventoryRoutes);
-
-// Health
-app.get('/health', (_req, res) => res.json({ ok: true }));
+router.use('/auth', authRoutes);
+router.use('/suppliers', suppliersRoutes);
+router.use('/products', productsRoutes);
+router.use('/orders', ordersRoutes);
+router.use('/reconciliations', reconciliationsRoutes);
+router.use('/control', controlRoutes);
+router.use('/analytics', analyticsRoutes);
+router.use('/inventory', inventoryRoutes);
+router.get('/health', (_req, res) => res.json({ ok: true }));
 
 // Production: serve React SPA from public/ (one Node app = API + frontend on Hostinger)
 if (config.isProduction) {
@@ -89,30 +88,29 @@ if (config.isProduction) {
   const fs = require('fs');
   if (fs.existsSync(publicDir)) {
     const apiPathPrefixes = ['/auth', '/suppliers', '/products', '/orders', '/reconciliations', '/control', '/analytics', '/inventory', '/health'];
-    app.use(express.static(publicDir, { index: false }));
-    app.get('*', (req: express.Request, res: express.Response, next: express.NextFunction) => {
+    router.use(express.static(publicDir, { index: false }));
+    router.get('*', (req: express.Request, res: express.Response, next: express.NextFunction) => {
       if (apiPathPrefixes.some((p) => req.path.startsWith(p))) return next();
       res.sendFile(path.join(publicDir, 'index.html'));
     });
   }
 }
 
-// Dev-only debug (disabled in production)
 if (!config.isProduction) {
-  app.use('/debug', debugRoutes);
+  router.use('/debug', debugRoutes);
 }
 
-// 404
-app.use((_req, res) => res.status(404).json({ success: false, error: 'Not found' }));
-
-// Error handler
-app.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+router.use((_req, res) => res.status(404).json({ success: false, error: 'Not found' }));
+router.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
   logError('Unhandled error', err);
   res.status(500).json({ success: false, error: 'Internal server error' });
 });
 
+app.use(config.basePath || '/', router);
+
 const server = app.listen(config.port, () => {
-  console.log(`API listening on port ${config.port} (${config.nodeEnv})`);
+  const base = config.basePath ? ` at ${config.basePath}` : '';
+  console.log(`API listening on port ${config.port}${base} (${config.nodeEnv})`);
 });
 server.on('error', (err: NodeJS.ErrnoException) => {
   if (err.code === 'EADDRINUSE') {
