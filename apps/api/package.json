@@ -30,18 +30,18 @@
     "pdfkit": "^0.15.0",
     "session-file-store": "^1.2.0",
     "svg-to-pdfkit": "^0.1.8",
-    "zod": "^3.22.4"
-  },
-  "devDependencies": {
+    "zod": "^3.22.4",
     "@types/bcrypt": "^5.0.2",
     "@types/cors": "^2.8.17",
     "@types/express": "^4.17.21",
     "@types/express-session": "^1.18.0",
     "@types/node": "^20.11.0",
     "@types/pdfkit": "^0.13.2",
+    "typescript": "^5.3.3"
+  },
+  "devDependencies": {
     "prisma": "^5.22.0",
     "tsx": "^4.7.1",
-    "typescript": "^5.3.3",
     "vitest": "^2.1.0"
   }
 }

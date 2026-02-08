@@ -1,12 +1,12 @@
 // AEM Residence Operations - Prisma schema
-// SQLite for local dev (no Docker). Production can use PostgreSQL by changing provider + url.
+// MySQL for production (Hostinger). For local dev use DATABASE_URL with MySQL or switch provider to "sqlite" and use file:./prisma/dev.db
 
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "mysql"
   url      = env("DATABASE_URL")
 }
 

@@ -88,7 +88,7 @@ router.post('/login', loginLimiter, validateBody(loginSchema), async (req: Reque
  * POST /auth/logout
  */
 router.post('/logout', (req: Request, res: Response): void => {
-  req.session.destroy((err) => {
+  req.session.destroy((err: Error | null) => {
     if (err) {
       logError('Logout session destroy', err);
     }

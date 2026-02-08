@@ -64,7 +64,7 @@ const router = express.Router();
 router.use(express.json({ limit: '1mb' }));
 router.use(sanitizeBody);
 
-router.use((req, res, next) => {
+router.use((req: express.Request, res: express.Response, next: express.NextFunction) => {
   const start = Date.now();
   res.on('finish', () => {
     logRequest(req.method, req.path, res.statusCode, Date.now() - start);
@@ -89,7 +89,7 @@ if (config.isProduction) {
   if (fs.existsSync(publicDir)) {
     const apiPathPrefixes = ['/auth', '/suppliers', '/products', '/orders', '/reconciliations', '/control', '/analytics', '/inventory', '/health'];
     router.use(express.static(publicDir, { index: false }));
-    router.get('*', (req: express.Request, res: express.Response, next: express.NextFunction) => {
+    router.get('*', (req: express.Request, res: express.Response, next: express.NextFunction): void => {
       if (apiPathPrefixes.some((p) => req.path.startsWith(p))) return next();
       res.sendFile(path.join(publicDir, 'index.html'));
     });
@@ -100,7 +100,7 @@ if (!config.isProduction) {
   router.use('/debug', debugRoutes);
 }
 
-router.use((_req, res) => res.status(404).json({ success: false, error: 'Not found' }));
+router.use((_req: express.Request, res: express.Response) => res.status(404).json({ success: false, error: 'Not found' }));
 router.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
   logError('Unhandled error', err);
   res.status(500).json({ success: false, error: 'Internal server error' });
