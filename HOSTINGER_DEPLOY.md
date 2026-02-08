@@ -6,19 +6,23 @@ This guide assumes you already have a Hostinger account with **Node.js** hosting
 
 ## If you see "Unsupported framework or invalid project structure"
 
-Hostinger detects frameworks by looking at the **Application Root** folder. This repo is a **monorepo** (root has workspaces, no Express/Vite at root), so the root is often not recognized.
+Hostinger supports **Express, Vite, React**, and a few other JS frameworks. This project uses all three; the **root** `package.json` now lists them as dependencies so Hostinger’s detector recognizes the repo when you select the **repo root** as Application Root.
 
-**Fix:** Set **Application Root** to **`apps/api`** (not the repo root). That folder contains the Express app, which Hostinger supports.
+**Use repo root (recommended):**
+
+- **Application Root:** leave as the **repo root** (the folder with `package.json`, `apps/`, `packages/`).
+- **Build command:** `npm ci && npm run build:zulbera` (or `npm run build:deploy` if not using `/zulbera`).
+- **Start command:** `npm run start`.
+- Set **environment variables** in the Hostinger Node.js app panel.
+
+**If the error still appears**, set **Application Root** to **`apps/api`** so Hostinger sees the Express app directly:
 
 - **Application Root:** `apps/api`
 - **Start command:** `node dist/index.js`
-- **Build:** You must run the full build from the **repo root** so that `apps/api/dist` and `apps/api/public` exist:
-  - From the folder that contains `apps/` and `package.json` run:  
-    `npm ci && npm run build:zulbera`  
-  - (Or `npm run build:deploy` if you are not using the `/zulbera` path.)
-- **Environment variables:** Set them in the Hostinger panel for the Node app (they apply to the process started by the start command).
-
-If your Hostinger panel only lets you choose the repo root, use **Application Root** = repo root, **Build command** = `npm ci && npm run build:zulbera`, **Start command** = `npm run start`. Some panels still show the error with monorepos; in that case use **Application Root** = `apps/api` and run the build from repo root (e.g. via SSH or deploy script).
+- Run the full build from the **repo root** first (e.g. via SSH or deploy script):  
+  `npm ci && npm run build:zulbera`  
+  so that `apps/api/dist` and `apps/api/public` exist.
+- Set environment variables in the Hostinger panel.
 
 ---
 
