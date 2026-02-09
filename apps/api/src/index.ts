@@ -108,12 +108,14 @@ router.use((err: Error, _req: express.Request, res: express.Response, _next: exp
 
 app.use(config.basePath || '/', router);
 
-// Bind to 0.0.0.0 so Hostinger (and any reverse proxy) can reach the app; use PORT from env
-const host = config.isProduction ? '0.0.0.0' : undefined;
-const server = app.listen(config.port, host, () => {
+// Bind to 0.0.0.0 in production so Hostinger (and any reverse proxy) can reach the app
+const listenCallback = () => {
   const base = config.basePath ? ` at ${config.basePath}` : '';
   console.log(`API listening on port ${config.port}${base} (${config.nodeEnv})`);
-});
+};
+const server = config.isProduction
+  ? app.listen(config.port, '0.0.0.0', listenCallback)
+  : app.listen(config.port, listenCallback);
 server.on('error', (err: NodeJS.ErrnoException) => {
   if (err.code === 'EADDRINUSE') {
     console.error(`\nPort ${config.port} is already in use. Kill the process with:\n  npm run dev:kill\nor:\n  lsof -ti:${config.port} | xargs kill -9\n`);
