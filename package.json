@@ -13,7 +13,7 @@
     "build": "npm run build -w @aem/shared && npm run build -w @aem/api && npm run build -w @aem/web",
     "build:deploy": "npm run build && node -e \"require('fs').cpSync('apps/web/dist', 'apps/api/public', { recursive: true })\"",
     "build:zulbera": "VITE_BASE_PATH=/zulbera VITE_API_BASE=/zulbera npm run build:deploy",
-    "start": "npm run start -w @aem/api",
+    "start": "node server.js",
     "db:migrate": "npm run db:migrate -w @aem/api",
     "db:seed": "npm run db:seed -w @aem/api",
     "db:generate": "npm run db:generate -w @aem/api",

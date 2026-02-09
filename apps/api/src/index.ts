@@ -108,7 +108,9 @@ router.use((err: Error, _req: express.Request, res: express.Response, _next: exp
 
 app.use(config.basePath || '/', router);
 
-const server = app.listen(config.port, () => {
+// Bind to 0.0.0.0 so Hostinger (and any reverse proxy) can reach the app; use PORT from env
+const host = config.isProduction ? '0.0.0.0' : undefined;
+const server = app.listen(config.port, host, () => {
   const base = config.basePath ? ` at ${config.basePath}` : '';
   console.log(`API listening on port ${config.port}${base} (${config.nodeEnv})`);
 });
